@@ -95,6 +95,7 @@ pge_elec_filter <-
 
 # Convertion: kWhs to kBTUs
 pge_elec_filter<-within(pge_elec_filter,kBTUs<-TOTALKWH*3.41214)
+pge_elec_filter2 <- pge_elec_filter[,-c(7,8)]
 
 #---------------------------------------------------------------------
 
@@ -178,6 +179,7 @@ pge_gas_filter <-
 
 # Convertion
 pge_gas_filter<-within(pge_gas_filter,kBTUs<-TOTALTHM*100)
+pge_gas_filter2 <- pge_gas_filter[,-c(7,8)]
 
 #---------------------------------------------------------------------
 
