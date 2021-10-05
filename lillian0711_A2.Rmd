@@ -1,0 +1,185 @@
+---
+title: "Assignment 2"
+author: "Lillian (Wei) Hung"
+date: "2021/10/4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+
+```{r}
+#run this section first before " library (tigris)"
+
+library(tidyverse)
+library(sf)
+library(mapview)
+library(leaflet)
+library(censusapi)
+library(devtools)
+# install_github('walkerke/tigris', force = TRUE )
+```
+
+
+```{r}
+library(tigris)
+
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+
+```
+
+
+```{r}
+smc_pop_2020 <-
+  getCensus(
+    name = "dec/pl",
+    vintage = 2020,
+    region = "block:*", 
+    regionin = "state:06+county:081",
+    vars = "P1_001N"
+  ) %>% 
+  transmute(
+    block =
+      paste0(state,county,tract,block),
+    pop2020 = P1_001N
+  )
+smc_blocks_2020 <- blocks("CA", "San Mateo", year = 2020, progress_bar = F)
+
+smc_pop_2010 <-
+  getCensus(
+    name = "dec/pl",
+    vintage = 2010,
+    region = "block:*", 
+    regionin = "state:06+county:081",
+    vars = "P001001"
+  ) %>% 
+  transmute(
+    block =
+      paste0(state,county,tract,block),
+    pop2010 = P001001
+  )
+smc_blocks_2010 <- blocks("CA", "San Mateo", year = 2010, progress_bar = F)
+```
+
+```{r}
+Redwood_boundary <- places("CA", progress_bar = F) %>% 
+  filter(NAME == "Redwood City")
+```
+
+
+
+```{r}
+Redwood_blocks_2010 <- smc_blocks_2010 %>% 
+  st_centroid() %>% 
+  .[Redwood_boundary, ] 
+
+smc_blocks_2010 <- blocks("CA", "San Mateo", year = 2010, progress_bar = F)
+
+Redwood_block_pop_2010 <- smc_pop_2010 %>% 
+  left_join(smc_blocks_2010 %>% select(block = GEOID10)) %>% 
+  st_as_sf() %>% 
+  st_centroid() %>% 
+  .[Redwood_boundary, ] %>% 
+   st_drop_geometry() %>% 
+  left_join(smc_blocks_2010 %>% select(block = GEOID10)) %>% 
+  st_as_sf()
+
+mapview(Redwood_boundary, alpha.regions = 0, color = "red", lwd = 2) + mapview(Redwood_block_pop_2010)
+
+```
+
+```{r}
+Redwood_block_pop_2020 <- smc_blocks_2020 %>%
+  .[Redwood_block_pop_2010, ]%>% 
+ select(GEOID20)%>% 
+  left_join(smc_pop_2020, by = c("GEOID20" = "block"))
+mapview(Redwood_boundary, alpha.regions = 0, color = "red", lwd = 2) + mapview(Redwood_block_pop_2020)
+```
+
+```{r}
+Redwood_block_pop_2020_intersect <- Redwood_block_pop_2020 %>% 
+  st_transform(26910) %>% 
+  mutate(original_area = st_area(.))%>% 
+  st_intersection(
+    Redwood_block_pop_2010 %>%
+      select(block) %>% 
+      st_transform(26910)
+  ) %>% 
+  mutate(
+    leftover_area = st_area(.),
+    perc_area = as.numeric(leftover_area / original_area),
+    pop_2020_new = Redwood_block_pop_2020$pop2020 * perc_area
+  )
+```
+
+
+```{r}
+Redwood_blocks_2020_reshaped <- Redwood_block_pop_2020_intersect  %>%
+  st_drop_geometry() %>% 
+  group_by(block) %>% 
+  summarize(
+    pop_2020_new = sum(pop_2020_new, na.rm=T) %>% round()
+  )
+```
+```{r}
+Redwood_block_pop_2010 <-
+  Redwood_block_pop_2010 %>% 
+  st_transform(26910)
+Redwood_pop_2010_2020 <- Redwood_block_pop_2010 %>% 
+  left_join(Redwood_blocks_2020_reshaped) %>% 
+  mutate(
+    change_in_pop = (Redwood_blocks_2020_reshaped$pop_2020_new - Redwood_block_pop_2010$pop2010) / as.numeric(st_area(Redwood_block_pop_2010)) * 5280^2 / 1000
+  )
+mapview(Redwood_pop_2010_2020,zcol="change_in_pop")
+```
+```{r}
+Redwood_pop_2010_2020 <- 
+  Redwood_pop_2010_2020 %>% 
+  st_transform(4326) 
+```
+```{r}
+min=min(Redwood_pop_2010_2020$change_in_pop)
+max=max(Redwood_pop_2010_2020$change_in_pop)
+max <- max(abs(min), abs(max))
+domain = c(-max,max)
+```
+```{r}
+smc_blocks_2010<-as.data.frame(smc_blocks_2010)
+absolute_pal <- colorNumeric(
+  palette = "PiYG",
+  domain = c(-max,max)
+)
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = 
+      Redwood_pop_2010_2020 %>% 
+        left_join(
+          smc_blocks_2010 %>% select(GEOID10), 
+          by = c("block" = "GEOID10")
+        ) %>% 
+        st_as_sf(),
+    stroke = F,
+    fillColor = ~absolute_pal (change_in_pop),
+    color = "white",
+    opacity = 0.5,
+    fillOpacity = 0.75,
+    weight = 1
+    )%>% 
+  addLegend(
+    data = Redwood_pop_2010_2020,
+    pal = absolute_pal,
+    values = ~change_in_pop,
+    title = "change in population 2010-2020 "
+  )
+
+```
+
+For assignment 2, I choose Redwood City to analyze its population change between 2010 and 2020. Redwood City is a city located in San Mateo County California. According to the map from 2010 to 2020, the population of Redwood City has increased or decreased slightly. However, the population of most blocks in the southern part of Redwood City has increased or decreased to a large extent. In other words, the population change in the southern part of Redwood City has a large variation. In addition, the population of the yellow and green areas in the west varies greatly. The reason may be the increase in local job opportunities and local developments. For instance, the area provides flexible space for businesses, including new technologies and light industrial uses. As for some areas in Redwood City, births, deaths, and migration may be the main reasons for the population decline. Fewer children are being born, and well-educated people move to big cities.
+
+
+
+
+
