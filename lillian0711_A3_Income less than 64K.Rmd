@@ -1,0 +1,201 @@
+---
+title: "Assignment 3"
+author: "Lillian (Wei) Hung"
+date: "2021/10/10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+
+
+#  Bay_counties
+
+```{r}
+library(devtools)
+# install_github('walkerke/tigris', force = TRUE )
+
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+
+```
+
+```{r}
+library(censusapi)
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+```
+
+```{r}
+
+ca_counties <- counties("CA", cb = T, progress_bar = F)
+
+bay_county_names <-
+  c(
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma"
+  )
+
+bay_counties <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME %in% bay_county_names)
+
+```
+
+
+
+```{r}
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+
+pums_2019_1yr <- getCensus(
+  name = "acs/acs1/pums",
+  vintage = 2019,
+  region = "public use microdata area:*", 
+  regionin = "state:06",
+  vars = c(
+    "SERIALNO",
+    "SPORDER",
+    "PWGTP",
+    "WGTP",
+    "NP",
+    "HHLANP",
+    "HHL",
+    "HINCP",
+    "FPARC",
+    "HUGCL",
+    "AGEP",
+    "SCHL",
+    "TEN"
+  )
+)
+
+```
+
+
+# --------------------------------
+
+```{r}
+
+ca_pumas <-
+  pumas("CA", cb = T, progress_bar = F)
+
+bay_pumas <-
+  ca_pumas %>% 
+  st_centroid() %>% 
+  .[bay_counties, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(ca_pumas %>% select(GEOID10)) %>% 
+  st_as_sf()
+
+bay_pums <-
+  pums_2019_1yr %>% 
+  mutate(
+    PUMA = str_pad(public_use_microdata_area,5,"left","0")
+  ) %>% 
+  filter(PUMA %in% bay_pumas$PUMACE10)
+
+# -------------------------------
+
+bay_pums_A3 <-
+  bay_pums %>% 
+  filter(!duplicated(SERIALNO)) %>% 
+  mutate(
+    WGTP = as.numeric(WGTP),
+    heat_impact_pop = ifelse(
+        (HINCP < 64000) &
+        (AGEP<6|AGEP>64) &
+        (TEN=3) & (HHL != 1) & (SCHL <16),
+    WGTP,
+      0
+    )
+  ) %>% 
+  group_by(PUMA) %>% 
+  summarize(
+    perc_heat_impact_pop =
+      sum(heat_impact_pop, na.rm =T)/sum(WGTP, na.rm = T)*100
+  ) %>% 
+  left_join(
+    bay_pumas %>% 
+      select(PUMACE10),
+    by = c("PUMA" = "PUMACE10")
+  ) %>% 
+  st_as_sf()
+
+
+pums_pal <- colorNumeric(
+  palette = "orange",
+  domain = bay_pums_A3$perc_heat_impact_pop
+)
+
+leaflet() %>%
+  addTiles() %>% 
+  addPolygons(
+    data = bay_pums_A3,
+    fillColor = ~pums_pal(perc_heat_impact_pop),
+    color = "green",
+    opacity = 0.5,
+    fillOpacity = 0.5,
+    weight = 1,
+    label = ~paste0(
+      round(perc_heat_impact_pop), 
+      "% Households with children Under 5-Year old or elderly,</br> for income less than $64K, living in rented house,</br> less educated, and non-English speaking"
+    ),
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>% 
+  addLegend(
+    data = bay_pums_A3,
+    pal = pums_pal,
+    values = ~perc_heat_impact_pop,
+    title = "% Households with children Under 5-Year old or elderly,</br> for income less than $64K, living in rented house,</br> less educated, and non-English speaking"
+  )
+
+```
+
+```{r}
+heat_impact_total_pop <-
+  bay_pums %>% 
+  filter(!duplicated(SERIALNO)) %>% 
+  mutate(WGTP = as.numeric(WGTP),
+    WGTP = as.numeric(WGTP),
+    heat_impact_total_pop = ifelse(
+        (HINCP < 64000) &
+        (AGEP<6|AGEP>64) &
+        (TEN=3) & (HHL != 1) & (SCHL <16),
+    WGTP,
+      0    
+    )
+  )
+
+heat_impact_total_pop <-
+summarize(
+    heat_impact_total_pop,Total_heat_impact_population=
+      sum(heat_impact_total_pop, na.rm =T)
+  )
+heat_impact_total_pop 
+
+```
+
+
+
+
+
+
+
+
+
+
+
