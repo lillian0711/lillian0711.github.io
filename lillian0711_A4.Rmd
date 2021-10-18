@@ -1,0 +1,601 @@
+---
+title: "Assignment 4"
+author: "Lillian (Wei) Hung"
+date: "2021/10/16"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+# San Mateo County(SMC) 
+
+```{r}
+library(devtools)
+# install_github('walkerke/tigris', force = TRUE )
+```
+
+```{r}
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+library(dplyr)
+```
+
+
+```{r}
+library(censusapi)
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+
+acs_vars_2019_5yr <-
+  listCensusMetadata(
+    name = "2019/acs/acs5",
+    type = "variables"
+  )
+
+names(acs_vars_2019_5yr)
+```
+
+# load C15002A: Sex By education attainment by Race (C15002A-C15002G)
+```{r}
+census_race_categories <- data.frame(
+  code = c("A","B","C","D","E","F","G"),
+  category =
+    c(
+      "White Alone",
+      "Black or African American",
+      "American Indian and Alaska Native Alone",
+      "Asian Alone",
+      "Native Hawaiian and Other Pacific Islander Alone",
+      "Some Other Race Alone",
+      "Two or More Races"
+    )
+)
+```
+
+
+```{r}
+census_race_categories <- 
+  c(
+    "White Alone",
+    "Black or African American",
+    "American Indian and Alaska Native Alone",
+    "Asian Alone",
+    "Native Hawaiian and Other Pacific Islander Alone",
+    "Some Other Race Alone",
+    "Two or More Races"
+  )
+
+SMC_education_race <-
+  1:7 %>% 
+  map_dfr(function(x){
+    getCensus(
+      name = "acs/acs5",
+      vintage = 2019,
+      region = "county:081",
+      regionin = "state:06",
+      vars = paste0("group(C15002",LETTERS[x],")")
+    ) %>%
+      select(!c(GEO_ID,state,NAME) & !ends_with(c("EA","MA","M"))) %>%
+      pivot_longer(
+        ends_with("E"),
+        names_to = "name",
+        values_to = "estimate"
+      ) %>%
+      left_join(
+        acs_vars_2019_5yr %>% 
+          select(name, label)
+      ) %>% 
+      select(-name) %>% 
+      separate(
+        label,
+        into = c(NA,NA,NA,"education"),
+        sep = "!!"
+      ) %>% 
+      filter(!is.na(education)) %>% 
+      mutate(race = census_race_categories[x])
+  })
+```
+
+# Plot 1: Vertical stacked Bar Chart - Education attainment by race 
+```{r}
+SMC_education_race %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = education,
+      y = estimate,
+      fill = race
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Number of households",
+    title = "San Mateo County education attainment by race",
+    fill = "Race of householder"
+  )
+```
+
+# Plot 2:  Horizontal stacked Bar Chart - Education attainment by race  
+```{r}
+SMC_education_race %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = education,
+      y = estimate,
+      fill = race
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Number of households",
+    title = "San Mateo County education attainment by race",
+    fill = "Race of householder"
+  ) +
+  coord_flip()
+```
+
+# Plot 3:  Horizontal stacked Bar Chart - Education attainment by race  (to fix orde of levels of Education attainment and race)
+```{r}
+SMC_education_race %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = education %>% factor(levels = unique(SMC_education_race$education)),
+      y = estimate,
+      fill = race %>% factor(levels = unique(SMC_education_race$race))
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Number of households",
+    title = "San Mateo County education attainment by race",
+    fill = "Race of householder"
+  ) +
+  coord_flip()
+```
+
+# Plot 4:  Horizontal stacked Bar Chart with relative difference in numbers of households (Proportionin) for each education tier - Education attainment by race 
+```{r}
+SMC_education_race %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = education %>% factor(levels =
+          rev(unique(SMC_education_race$education))),
+      y = estimate, fill = race 
+      %>% factor(levels = rev(unique(SMC_education_race$race)))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Proportion of households",
+    title = "San Mateo County education attainment by race",
+    fill = "Race of householder"
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+# Plot 5: Horizontal stacked Bar Chart with relative difference in numbers of households for each education tiers - Education attainment by race (to include a bar at the very top representing the total population)
+```{r}
+SMC_race_total <-
+  SMC_education_race %>% 
+  group_by(race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  mutate(education = "Total")
+
+SMC_education_race %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  rbind(SMC_race_total) %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = education %>% factor(levels =
+         rev(c("Total",unique(SMC_education_race$education)))),
+        y = estimate, fill = race %>% 
+        factor(levels = rev(unique(SMC_education_race$race)))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Proportion of households",
+    title = "San Mateo County education attainment by race",
+    fill = "Race of householder"
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+According to Plot 5, it can be concluded that there is disproportionate education attainment by race in the San Mateo County. Specifically, white alone group has lesser proportion in the tier of “less than high school diploma”. Asia alone also has lesser proportion in the tiers of “less than high school diploma” and “High school graduate”, but somewhat higher proportion in “Bachelor’s degree or higher”. Black or African American Alone group has higher proportion in “High school graduate” and “Some college or associate’s degree”, but much lower proportion in “Bachelor’s degree or higher”. Some other race alone group particularly has much larger proportion in “High school graduate”, specifically, and also in the “High school graduate”, but low in “Bachelor’s degree or higher”. 
+
+# Phase II Analysis
+
+```{r}
+library(censusapi)
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+
+acs_vars_2019_1yr <-
+  listCensusMetadata(
+    name = "2019/acs/acs1",
+    type = "variables"
+  )
+
+names(acs_vars_2019_1yr)
+```
+
+
+# load B15002I: Sex By education attainment for Latinx ( Hispanic or Latino) category
+```{r}
+SMC_education_Latinx <-
+  getCensus(
+    name = "acs/acs1",
+    vintage = 2019,
+    region = "county:081",
+    regionin = "state:06",
+    vars = "group(B15002I)"
+  ) %>%
+  select(!c(GEO_ID,state,NAME) & !ends_with(c("EA","MA","M"))) %>%
+  pivot_longer(
+    ends_with("E"),
+    names_to = "name",
+    values_to = "estimate"
+  ) %>%
+  left_join(
+    acs_vars_2019_1yr %>% 
+      select(name, label)
+  ) %>% 
+  select(-name) %>% 
+  separate(
+    label,
+    into = c(NA,NA,NA,"education"),
+    sep = "!!"
+  ) %>% 
+  filter(!is.na(education)) %>% 
+  group_by(education) %>% 
+  summarize(estimate = sum(estimate)) %>%
+  mutate (
+    race= "Latinx")
+```
+
+
+# load B15002H: Sex By education attainment for "White Alone (& NOT Latinx) category
+```{r}
+SMC_education_White <-
+  getCensus(
+    name = "acs/acs1",
+    vintage = 2019,
+    region = "county:081",
+    regionin = "state:06",
+    vars = "group(B15002H)"
+  ) %>%
+  select(!c(GEO_ID,state,NAME) & !ends_with(c("EA","MA","M"))) %>%
+  pivot_longer(
+    ends_with("E"),
+    names_to = "name",
+    values_to = "estimate"
+  ) %>%
+  left_join(
+    acs_vars_2019_1yr %>% 
+      select(name, label)
+  ) %>% 
+  select(-name) %>% 
+  separate(
+    label,
+    into = c(NA,NA,NA,"education"),
+    sep = "!!"
+  ) %>% 
+  filter(!is.na(education)) %>% 
+  group_by(education) %>% 
+  summarize(estimate = sum(estimate)) %>%
+  mutate (
+    race= "White & Not Latinx")
+```
+
+# -------------------------------------
+# load B15002: Sex By education attainment by Race (C15002A-C15002G)
+```{r}
+census_race_categories <- data.frame(
+  code = c("A","B","C","D","E","F","G"),
+  category =
+    c(
+      "White Alone",
+      "Black or African American Alone",
+      "American Indian and Alaska Native Alone",
+      "Asian Alone",
+      "Native Hawaiian and Other Pacific Islander Alone",
+      "Some Other Race Alone",
+      "Two or More Races"
+    )
+)
+```
+
+
+```{r}
+census_race_categories <- 
+  c(
+    "White Alone",
+    "Black or African American Alone",
+    "American Indian and Alaska Native Alone",
+    "Asian Alone",
+    "Native Hawaiian and Other Pacific Islander Alone",
+    "Some Other Race Alone",
+    "Two or More Races"
+  )
+
+SMC_education_Total <-
+  1:7 %>% 
+  map_dfr(function(x){
+    getCensus(
+      name = "acs/acs1",
+      vintage = 2019,
+      region = "county:081",
+      regionin = "state:06",
+      vars = paste0("group(B15002",LETTERS[x],")")
+    ) %>%
+      select(!c(GEO_ID,state,NAME) & !ends_with(c("EA","MA","M"))) %>%
+      pivot_longer(
+        ends_with("E"),
+        names_to = "name",
+        values_to = "estimate"
+      ) %>%
+      left_join(
+        acs_vars_2019_1yr %>% 
+          select(name, label)
+      ) %>% 
+      select(-name) %>% 
+      separate(
+        label,
+        into = c(NA,NA,NA,"education"),
+        sep = "!!"
+      ) %>% 
+      filter(!is.na(education))  %>%   
+      filter(!is.na(estimate))   %>% 
+      mutate(race = census_race_categories[x])  
+  })     
+  
+   SMC_education_Total<-   
+     SMC_education_Total %>%
+      group_by(education) %>% 
+      summarize(estimate= sum(estimate))  
+
+```
+
+# To calculate Sex By education attainment  for the category of "Not White & Not Latinx" population 
+```{r}
+SMC_education_NotWhite_NotLatinx <-
+  SMC_education_Total %>%
+  mutate(
+    esstimate_NotWhite_NotLatinx = 
+      SMC_education_Total$estimate - SMC_education_Latinx$estimate -         SMC_education_White$estimate ) %>% 
+  select(- estimate) %>%
+  mutate (
+    race= "Not White & Not Latinx") %>% 
+  rename(estimate=esstimate_NotWhite_NotLatinx)
+```
+
+# Append 3 seperate data sets into one with 3 categories (Sex By education attainment by race)
+```{r}
+SMC_education_categories <-
+  SMC_education_Latinx %>%
+  rbind ( SMC_education_White ,
+         SMC_education_NotWhite_NotLatinx ) 
+```
+
+
+# Plot 6: Vertical stacked Bar Chart - Education attainment by race 
+```{r}
+SMC_education_categories %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = education %>% factor(levels 
+    =rev(c("Total", "Less than 9th grade", 
+           "9th to 12th grade, no diploma", 
+           "GED or alternative credential", 
+           "Regular high school diploma", 
+           "Associate's degree",
+           "Some college, no degree",
+           "Bachelor's degree", 
+           "Graduate or professional degree") )),
+    y = estimate,
+       fill = race
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Number of households",
+    title = "San Mateo County Education attainment by race",
+    fill = "Race of householder"
+  )
+```
+
+# Plot 7:  Horizontal stacked Bar Chart - Education attainment by race  
+```{r}
+SMC_education_categories %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = education %>% factor(levels 
+    =rev(c("Total", "Less than 9th grade", 
+           "9th to 12th grade, no diploma", 
+           "GED or alternative credential", 
+           "Regular high school diploma", 
+           "Associate's degree",
+           "Some college, no degree",
+           "Bachelor's degree", 
+           "Graduate or professional degree") )),
+    y = estimate,
+      fill = race
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Number of households",
+    title = "San Mateo County Education attainment by race",
+    fill = "Race of householder"
+  ) +
+  coord_flip()
+```
+
+# Plot 8:  Horizontal stacked Bar Chart - Education attainment by race  (to fix orde of levels of Education attainment and race)
+```{r}
+SMC_education_categories %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = education %>% factor(levels 
+    =rev(c("Total", "Less than 9th grade", 
+           "9th to 12th grade, no diploma", 
+           "GED or alternative credential", 
+           "Regular high school diploma", 
+           "Associate's degree",
+           "Some college, no degree",
+           "Bachelor's degree", 
+           "Graduate or professional degree") )),
+      y = estimate,
+      fill = race %>% factor(levels = unique(SMC_education_categories$race))
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Number of households",
+    title = "San Mateo County Education attainment by race",
+    fill = "Race of householder"
+  ) +
+  coord_flip()
+```
+
+# Plot 9:  Horizontal stacked Bar Chart with relative difference in numbers of households (Proportionin) for each education tier - Education attainment by race 
+```{r}
+SMC_education_categories %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  ggplot() +
+    geom_bar(
+    aes(x = education %>% factor(levels 
+    =rev(c("Total", "Less than 9th grade", 
+           "9th to 12th grade, no diploma", 
+           "GED or alternative credential", 
+           "Regular high school diploma", 
+           "Associate's degree",
+           "Some college, no degree",
+           "Bachelor's degree", 
+           "Graduate or professional degree") )),
+       y = estimate, fill = race 
+      %>% factor(levels = rev(unique(SMC_education_categories$race)))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Proportion of households",
+    title = "San Mateo County Education attainment by race",
+    fill = "Race of householder"
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+# Plot 10: Horizontal stacked Bar Chart with relative difference in numbers of households for each education tiers - Education attainment by race (to include a bar at the very top representing the total population)
+```{r}
+SMC_race_total <-
+  SMC_education_categories %>% 
+  group_by(race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  mutate(education = "Total")
+
+SMC_education_categories %>% 
+  group_by(education, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  rbind(SMC_race_total) %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = education %>% factor(levels 
+    =rev(c("Total", "Less than 9th grade", 
+           "9th to 12th grade, no diploma", 
+           "GED or alternative credential", 
+           "Regular high school diploma", 
+           "Associate's degree",
+           "Some college, no degree",
+           "Bachelor's degree", 
+           "Graduate or professional degree") )),
+        y = estimate, fill = race %>% 
+        factor(levels = rev(unique(SMC_education_categories$race)))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Education attainment",
+    y = "Proportion of households",
+    title = "San Mateo County Education attainment by race",
+    fill = "Race of householder"
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+According to Plot 10, it can be also concluded that there is disproportionate education attainment by race in the San Mateo County. Specifically, Latinx group has much higher proportion in the tier of ‘ less than 9th grade” and “9th to 12th grade, no diploma”. On the contrary, White and not Latinx group has much lesser proportion in “ less than 9th grade” and “9th to 12th grade, no diploma”. Not White and not Latinx group also has lesser proportion in these two tiers.
