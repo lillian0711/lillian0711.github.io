@@ -1,0 +1,235 @@
+title: 'Assignment 6'
+author: "Lillian (Wei) Hung"
+date: "10/28/2021"
+output: html_document
+
+
+```{r   setup, include=FALSE   }
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+# Step 1:
+# Filter to San Francisco PUMAs
+```{r}
+library(censusapi)
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+library(corrplot)
+
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+
+# pums_2019_1yr <- getCensus(
+# name = "acs/acs1/pums",
+# vintage = 2019,
+# region = "public use microdata area:*",
+# regionin = "state:06",
+# vars = c(
+#    "SERIALNO",
+#      "SPORDER",
+#      "PWGTP",
+#      "WGTP",
+#     "YBL",
+#      "BLD",
+#      "TEN",
+#      "MV",
+#      "HINCP",
+#      "AGEP"
+#     )
+#    )
+#  saveRDS(pums_2019_1yr, "a6_pums.rds")
+
+
+
+pums_2019_1yr <- readRDS("a6_pums.rds")
+
+ca_pumas <-
+  pumas("CA", cb = T, progress_bar = F)
+
+sf_boundary <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME == "San Francisco")
+
+sf_pumas <-
+  ca_pumas %>% 
+  st_centroid() %>% 
+  .[sf_boundary, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(ca_pumas %>% select(GEOID10)) %>% 
+  st_as_sf()
+
+```
+
+# Map of San Francisco -- showing San Francisco PUMAs
+```{r}
+mapview(sf_boundary, alpha.regions = 0, color = "red", lwd = 2) + mapview(sf_pumas)
+
+```
+
+# Step 2 & 3:
+# Grab PUMS data for San Francisco PUMAs
+# Filter the data with building construction before 1960 
+```{r}
+sf_pums <- pums_2019_1yr %>% 
+  mutate(
+    PUMA = str_pad(public_use_microdata_area,5,"left","0")
+  ) %>%  
+    filter(PUMA %in% sf_pumas$PUMACE10) 
+  
+
+sf_pums_clean <- sf_pums %>%
+  mutate(
+    YBL = as.numeric(YBL)
+  ) %>% 
+  filter(YBL %in% 1:3) %>%
+  arrange(AGEP) %>%
+  group_by(SERIALNO) %>%
+  summarise_all(first)
+```
+
+# Step 4:
+# Define the binary variable for dependent variable of the logistic regression
+#leadrisk: household income < 90K & children age < 6 
+```{r}
+sf_pums_clean_filter <-
+  sf_pums_clean  %>% 
+mutate(
+    AGEP = as.numeric(AGEP),
+    HINCP = as.numeric(HINCP),
+  ) %>% 
+mutate(
+    leadrisk = ifelse(
+      (AGEP< 6) & (HINCP< 90000),
+      1,
+      0
+    )
+)
+```
+
+# Step 5:
+# Define binary factor levels for predictors: BLD, TEN, MV, and PUMA
+```{r}
+sf_pums_clean_filter_Predictor <- 
+  sf_pums_clean_filter %>% 
+  mutate(
+    BLD_unit = BLD %>% 
+      factor(
+        levels = sf_pums_clean_filter$BLD %>% 
+          unique() %>%
+          as.numeric() %>% 
+          sort()
+      )
+  ) %>% 
+  mutate(
+    Tenure = TEN %>% 
+      factor(
+        levels = sf_pums_clean_filter$TEN %>% 
+          unique() %>%
+          as.numeric() %>% 
+          sort()
+      )
+
+) %>% 
+  mutate(
+    Move = MV %>% 
+      factor(
+        levels = sf_pums_clean_filter$MV %>% 
+          unique() %>%
+          as.numeric() %>% 
+          sort()
+      )
+) %>% 
+ mutate(
+    PUMA = PUMA %>% 
+      factor(
+        levels = sf_pums_clean_filter$PUMA %>% 
+          unique() %>%
+          sort()
+      )
+ )   
+```
+
+
+# Estimate logit model using glm
+# Y value is the log(Odds)
+```{r}
+logit_model_glm <- glm(
+  leadrisk ~ BLD_unit + Tenure + Move + PUMA,
+  family = quasibinomial(),
+  data = sf_pums_clean_filter_Predictor
+)
+
+summary(logit_model_glm)
+```
+Result:
+Based on the summary of the estimated logit model, Tenure4, Move6, PUMA07506 are significant at 0.05 level of significance. Specially, Tensure4 is much more significant with p value lower than 0.01 level of significance.
+
+As compared with the baseline households (Tenure1) who owned with mortgage or loan, the households (Tenure4) who occupied without payment of rent tend to more likely be identified as lead risk (low-income with children under 6) since the estimated coefficient in the logit model is positive implying that the related odds ratio would be higher than 1. 
+
+Similarly, the estimated coefficients for PUMA07506 is also positive, hence, the households who lived in PUMA07506 are more likely to be low income with children under 6 as compared to the households who lived in PUMA07501.
+
+On the contrary,the estimated coefficients for Move6 is negative meaning that households who moved to current address between 20-29 years tend to less likely be identified as low income with children under 6 as compared with households moving in less than 1 year (Move1). 
+
+
+
+
+# Odds of occurring (income <90K & at least one child uner 6 year old) for each factor-level of variables -- taking exp() of each GLM coefficient to calculate the odds
+```{r}
+exp (coef(logit_model_glm))
+```
+
+
+# Probability of occurring (income <90K & at least one child uner 6 year old) for each factor-level of variables
+```{r}
+exp ( coef (logit_model_glm)) / ( exp ( coef (logit_model_glm)) + 1 )
+```
+
+
+# Prediction for one observation which was randomly selected from the data
+```{r}
+predicted_one=sample_n(sf_pums_clean_filter_Predictor, 1)
+predicted_one
+predict(logit_model_glm, predicted_one, type = "response")
+```
+
+
+```{r}
+predicted_all <-
+  predict(logit_model_glm, data = sf_pums_clean_filter_Predictor, type = "response")
+data=cbind(sf_pums_clean_filter_Predictor, predicted_all)
+```
+
+
+# Step 6:
+# 2*2 Table
+```{r}
+summary_2x2 <-
+  data %>% 
+  mutate(
+    leadrisk = ifelse(
+      leadrisk == 1, 
+      "Yes ", 
+      "No "
+    )
+  ) %>% 
+  pull(leadrisk) %>% 
+  table(predicted_all > 0.1)
+```
+
+```{r}
+summary_2x2
+```
+
+Result:
+
+True positive is 3/(20+3)=0.1304.
+True negative is 2215/(2215+26)=0.9884. 
+Type I error is 26/(2215+26)=0.01116.
+Type II error is 20/(20+3)=0.8696.
+It is obvious that the type I error of the estimated logit model is low. The type II error is very high. It means that if BLD, Tenure, MV and PUMA are used as the predictors in the logit model, the households who belong to low income with children under 6 tend to more likely be incorrectly identified as they are not. 
+True positive is 0.13 implying 13% of the low income households with children under 6 can be correctly identified using the logit model prediction. 
+True negative is high implying the households not belonging to low income with children under 6 can be correctly identified as not belonging to low income group. 
+In total, we may send out (26+3) post cards with only 3 going to the actual low income group. Hence, the success rate is 3/(26+3)=10.34%.
+
