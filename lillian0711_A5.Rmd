@@ -1,0 +1,771 @@
+---
+title: "Assignment 5"
+author: "Lillian Wei Hung"
+date: "2021/10/21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+# Bay Area
+```{r}
+library(devtools)
+# install_github('walkerke/tigris', force = TRUE )
+# install usethis
+```
+
+```{r}
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+options(tigris_use_cache = TRUE)
+library(dplyr )
+```
+
+```{r}
+library(readxl)
+
+ces4 <- read_excel(
+    "calenviroscreen40resultsdatadictionary_F_2021.xlsx", 
+  sheet = "CES4.0FINAL_results"
+)
+
+saveRDS(ces4, "ces4.rds")
+```
+
+```{r}
+library(censusapi)
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+```
+
+```{r}
+bay_county_names <-
+  c(
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma"
+  )
+
+ca_tracts <- tracts("CA", cb = T, progress_bar = F)
+
+ces4_bay_pm25 <-
+  ces4 %>% 
+  filter(`California County` %in% bay_county_names) %>% 
+  select(`Census Tract`, PM2.5) %>% 
+  left_join(
+    ca_tracts %>% 
+      transmute(GEOID = as.numeric(GEOID)), 
+    by = c("Census Tract" = "GEOID")
+  ) %>% 
+  st_as_sf()
+```
+
+```{r}
+pm25_pal <- colorNumeric(
+  palette = "Reds",
+  domain = ces4_bay_pm25$PM2.5
+)
+
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = ces4_bay_pm25,
+    fillColor = ~pm25_pal(PM2.5),
+    color = "white",
+    weight = 0.5,
+    fillOpacity = 0.5,
+    label = ~PM2.5
+  )
+```
+
+
+Result:
+
+Center Napa and West Oakland have the highest concentration of PM 2.5. East and middle parts of Bay areas are the next seriously polluted regions. West of North Bay areas such as Santa Rosa Has the lower PM 2.5. South part of Bay Areas such as Gilroy is also less polluted.
+
+
+```{r}
+summary(ces4_bay_pm25$PM2.5)
+```
+
+```{r}
+census_race_categories <- 
+  c(
+    "White Alone",
+    "Black or African American",
+    "American Indian and Alaska Native Alone",
+    "Asian Alone",
+    "Native Hawaiian and Other Pacific Islander Alone",
+    "Some Other Race Alone",
+    "Two or More Races"
+  )
+
+bay_race_tracts <-
+  1:7 %>% 
+  map_dfr(function(x){
+    getCensus(
+      name = "acs/acs5",
+      vintage = 2019,
+      region = "tract:*",
+      regionin = "state:06+county:001,013,041,055,075,081,085,095,097",
+      vars = paste0("B19001",LETTERS[x],"_001E")
+    ) %>%
+      mutate(
+        tract = paste0(state, county, tract) %>% as.numeric(),
+        race = census_race_categories[x]
+      ) %>% 
+      select(
+        tract,
+        race,
+        estimate = paste0("B19001",LETTERS[x],"_001E")
+      )
+  })
+```
+
+```{r}
+bay_pm25_race <-
+  bay_race_tracts %>% 
+  left_join(
+    ces4_bay_pm25 %>% 
+      st_drop_geometry(),
+    by = c("tract" = "Census Tract")
+  ) %>% 
+  mutate(
+    PM2.5_tier =
+      case_when(
+        PM2.5 < 6 ~ "5-6",
+        PM2.5 < 7 ~ "6-7",
+        PM2.5 < 8 ~ "7-8",
+        PM2.5 < 9 ~ "8-9",
+        PM2.5 < 10 ~ "9-10",
+        TRUE ~ "10-11"
+      ) 
+  ) %>%  filter(
+    !is.na(PM2.5)
+ )  %>%   
+  group_by(race, PM2.5_tier) %>% 
+  summarize(estimate = sum(estimate, na.rm = T))
+```
+
+```{r}
+bay_pm25_race_stacked <-
+  bay_pm25_race %>% 
+  group_by(PM2.5_tier, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  rbind(
+    bay_pm25_race %>% 
+      group_by(race) %>% 
+      summarize(estimate = sum(estimate)) %>% 
+      mutate(PM2.5_tier = "Total")
+  ) %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = PM2.5_tier %>% factor(levels = rev(c("Total","5-6","6-7","7-8","8-9","9-10","10-11"))),
+      y = estimate,
+      fill = race %>% factor(levels = rev(census_race_categories))
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "PM2.5",
+    y = "Number of households",
+    title = "Bay Area PM2.5 exposure by race",
+    subtitle = "Annual mean concentration of PM2.5 (weighted average, µg/m3),\nover three years (2015 to 2017), aggregated by Census tract",
+    fill = "Race of householder"
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  ) +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+```{r}
+bay_pm25_race_fill <-
+  bay_pm25_race %>% 
+  group_by(PM2.5_tier, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  rbind(
+    bay_pm25_race %>% 
+      group_by(race) %>% 
+      summarize(estimate = sum(estimate)) %>% 
+      mutate(PM2.5_tier = "Total")
+  ) %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = PM2.5_tier %>% factor(levels = rev(c("Total","5-6","6-7","7-8","8-9","9-10","10-11"))),
+      y = estimate,
+      fill = race %>% factor(levels = rev(census_race_categories))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "PM2.5",
+    y = "number of households",
+    title = "Bay Area PM2.5 exposure by race",
+    subtitle = "Annual mean concentration of PM2.5 (weighted average, μg/m3),\nover three years (2015 to 2017), aggregated by Census tract" ,
+     fill = "Race of householder" 
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  ) +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+# PM2.5 stacked plot
+```{r}
+bay_pm25_race_stacked
+```
+# PM2.5 stacked plot (fill)
+```{r}
+bay_pm25_race_fill
+```
+
+
+Result:
+
+As compared to the proportions in the “Total”, there are higher proportions of White living in the regions with the tier of 10-11 PM2.5, and also the tiers of 5-6, 6-7, 7-8 PM2.5, especially. On the contrary, lower proportions of Asian living in these areas. More black or African Americans live in the regions with the tier of of 9-10 and 10-11 PM2.5.
+
+
+
+# Asthma Plot
+```{r}
+ces4_bay_Asthma <-
+  ces4 %>% 
+  filter(`California County` %in% bay_county_names) %>% 
+  select(`Census Tract`, Asthma) %>% 
+  left_join(
+    ca_tracts %>% 
+      transmute(GEOID = as.numeric(GEOID)), 
+    by = c("Census Tract" = "GEOID")
+  ) %>% 
+  st_as_sf()
+```
+
+```{r}
+Asthma_pal <- colorNumeric(
+  palette = "Green",
+  domain = ces4_bay_Asthma$ASthma
+)
+
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = ces4_bay_Asthma,
+    fillColor = ~Asthma_pal(Asthma),
+    color = "Red",
+    weight = 0.5,
+    fillOpacity = 0.5,
+    label = ~Asthma
+  )
+```
+
+
+Results:
+
+The east side of Bay regions between Oakland and East Bay particularly have high proportions of Asthma prevalence.
+
+```{r}
+summary(ces4_bay_Asthma$Asthma)
+```
+
+
+#Combine PM2.5, Asthma with race tract data
+```{r}
+bay_Asthma_race <-
+  bay_race_tracts %>% 
+  left_join(
+    ces4_bay_Asthma %>% 
+      st_drop_geometry(),
+    by = c("tract" = "Census Tract")
+  ) %>% 
+  mutate(
+    Asthma_tier =
+      case_when(
+        Asthma < 50 ~ "0-50",
+        Asthma < 100 ~ "50-100",
+        Asthma < 150 ~ "100-150",
+        Asthma < 200 ~ "150-200",
+        TRUE ~ "200-250"
+      ) 
+  ) %>% filter(
+    !is.na(Asthma)
+) %>%
+  group_by(race, Asthma_tier) %>% 
+  summarize(estimate = sum(estimate, na.rm = T))
+```
+
+```{r}
+bay_Asthma_race_stacked <-
+  bay_Asthma_race %>% 
+  group_by(Asthma_tier, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  rbind(
+    bay_Asthma_race %>% 
+      group_by(race) %>% 
+      summarize(estimate = sum(estimate)) %>% 
+      mutate(Asthma_tier = "Total")
+  ) %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = Asthma_tier %>% factor(levels = rev(c(
+         "Total",
+         "0-50",
+         "50-100",
+         "100-150",
+         "150-200",
+         "200-250"  ))),
+      y = estimate,
+      fill = race %>% factor(levels = rev(census_race_categories))
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Asthma",
+    y = "Number of households",
+    title = "Bay Area Asthma prevalence by race",
+    subtitle = "Spatially modeled, age-adjusted rate of ED visits for asthma per 10,000,\n(averaged over 2015-2017), aggregated by Census tract",
+    fill = "Race of householder"
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  ) +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+```{r}
+bay_Asthma_race_fill <-
+  bay_Asthma_race %>% 
+  group_by(Asthma_tier, race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  rbind(
+    bay_Asthma_race %>% 
+      group_by(race) %>% 
+      summarize(estimate = sum(estimate)) %>% 
+      mutate(Asthma_tier = "Total")
+  ) %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = Asthma_tier %>% factor(levels = rev(c(
+        "Total",
+         "0-50",
+         "50-100",
+         "100-150",
+         "150-200",
+         "200-250"  ))),
+      y = estimate,
+      fill = race %>% factor(levels = rev(census_race_categories))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Asthma",
+    y = "Proportion of households",
+    title = "Bay Area Asthma prevalence by race",
+    subtitle = "Spatially modeled, age-adjusted rate of ED visits for asthma per 10,000,\n(averaged over 2015-2017), aggregated by Census tract",
+     fill = "Race of householder"
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  ) +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+# Asthma prevalence by race stacked plot
+```{r}
+bay_Asthma_race_stacked
+```
+# Asthma prevalence by race stacked plot (fill)
+```{r}
+bay_Asthma_race_fill
+```
+
+
+
+Result:
+The regions with more Asthma prevalence in the levels of 100-150, 150-200, 200-250 have lower proportions of White and Asian, but higher proportions of black or African Americans, and some other race group.
+
+
+
+# Problem 2:
+# Best Fit
+```{r}
+ces4_bay_pm25_Asthma <-
+   ces4_bay_pm25 %>%
+   left_join(
+       ces4_bay_Asthma %>% 
+       st_drop_geometry(),
+       by = c("Census Tract" = "Census Tract")
+  )   %>% 
+      filter(
+         !is.na(Asthma),  !is.na(Asthma) 
+      )
+```
+
+# Scatter plot of PM2.5 vs. Asthma
+```{r}
+ggplot() +
+  geom_point(
+    data = ces4_bay_pm25_Asthma,
+    aes(
+      x = PM2.5,
+      y = Asthma
+    )
+  )
+```
+
+# Scatter plot of PM2.5 vs. Asthma with lm smooth line
+```{r}
+ggplot(
+  data = ces4_bay_pm25_Asthma,
+  aes(
+      x = PM2.5,
+      y = Asthma
+  )
+) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
+# 
+```{r}
+slope <- 0
+yintercept <- 0
+
+ yintercept <-  mean( ces4_bay_pm25_Asthma$Asthma )
+ yintercept
+
+best_fit_candidate <- slope * ces4_bay_pm25_Asthma$PM2.5 + yintercept 
+
+residuals <- ces4_bay_pm25_Asthma$Asthma - best_fit_candidate
+
+sumsq_residuals <- sum(residuals^2)
+
+sumsq_residuals
+```
+
+```{r}
+ggplot(
+  data = ces4_bay_pm25_Asthma,
+  aes(
+      x = PM2.5,
+      y = Asthma
+    )
+) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_line(
+    aes(
+      x = ces4_bay_pm25_Asthma$PM2.5,
+      y = best_fit_candidate
+    ),
+    color = "red",
+    size = 1
+  )
+```
+
+Result:
+
+The scatter plot does not show a good fit since there are a lot of points lying above and away from the best-fit line.
+
+
+
+# Problem 3:
+# Regression Analysis -- Optimization of SSR(Residuals)
+```{r}
+get_sumsq_residuals <- function(x){
+
+  slope <- x[1]
+  yintercept <- x[2]
+  
+  best_fit_candidate <- slope * ces4_bay_pm25_Asthma$PM2.5 + yintercept 
+  
+  residuals <- ces4_bay_pm25_Asthma$Asthma - best_fit_candidate
+  
+  sumsq_residuals <- sum(residuals^2)
+}
+
+  sumsq_residuals
+```
+
+```{r}
+optimization <- optim(c(0,0), get_sumsq_residuals)
+
+optimization
+```
+
+```{r}
+ggplot(
+  data = ces4_bay_pm25_Asthma,
+  aes(
+      x = PM2.5,
+      y = Asthma
+    )
+) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_line(
+    aes(
+      x = PM2.5,
+      y = PM2.5 * optimization$par[1] + optimization$par[2]
+    ),
+    color = "red",
+    linetype = 2,
+    size = 2
+  )
+```
+
+```{r}
+slope <- optimization$par[1]
+yintercept <- optimization$par[2]
+
+best_fit_candidate <- slope *  ces4_bay_pm25_Asthma$PM2.5 + yintercept 
+
+residuals <-  ces4_bay_pm25_Asthma$Asthma - best_fit_candidate
+
+mean(residuals)
+```
+
+# Regression model with optimization
+```{r}
+model <- lm(Asthma ~ PM2.5, ces4_bay_pm25_Asthma)
+
+summary(model)
+```
+
+
+Result:
+
+The linear regression analysis uses optimization approach which minimizes the sum of squared residuals (SSR) and gives the best fit under the assumption of a linear model. The fitted regression equation is: 
+
+Asthma prevalence = -116.278 + 19.862 * PM2.5
+
+“An increase of “1 µg/m3” in “Annual mean concentration of PM2.5” is associated with an increase of “19.862” visits in “age-adjusted rate of ED visits for asthma per 10,000”.
+ “9.606%” of the variation in “age-adjusted rate of ED visits for asthma per 10,000” is explained by the variation in “Annual mean concentration of PM2.5”.
+
+
+```{r}
+predict(model, data.frame(PM2.5 = 8))
+```
+
+
+
+
+# Problem 4:
+#Residual density Plot before log transformation
+```{r}
+plot(density(residuals))
+```
+
+
+Result:
+
+To ensure the regression line to be a good fit, the residuals from the fitted regression line need to follow a normal distribution around the “0 “mean. However, based on the residual density plot, the residual distribution is clearly right skewed instead of normal.
+
+
+# Best Fit after log transformation of Asthma prevalence
+```{r}
+ces4_bay_pm25_LN_Asthma <-
+  ces4_bay_pm25_Asthma  %>%
+      mutate (
+        LN_Asthma=log(Asthma)
+   )
+```
+
+# Scatter plot of PM2.5 vs. log Asthma
+```{r}
+ggplot() +
+  geom_point(
+    data = ces4_bay_pm25_LN_Asthma,
+    aes(
+      x = PM2.5,
+      y = LN_Asthma
+    )
+  )
+```
+
+
+# Problem 5:
+# Regression Analysis after log transformation of Asthma prevalence
+# Calculation of SSR
+```{r}
+get_sumsq_residuals <- function(x){
+
+  slope <- x[1]
+  yintercept <- x[2]
+  
+  best_fit_candidate <- slope * ces4_bay_pm25_LN_Asthma$PM2.5 + yintercept 
+  
+  residuals <- ces4_bay_pm25_LN_Asthma$LN_Asthma - best_fit_candidate
+  
+  sumsq_residuals <- sum(residuals^2)
+}
+
+  sumsq_residuals
+```
+
+# Optimization of SSR(Residuals) after log transformation of Asthma prevalence
+```{r}
+optimization <- optim(c(0,0), get_sumsq_residuals)
+
+optimization
+```
+
+
+# Regression line after log transformation of Asthma prevalence
+```{r}
+ggplot(
+  data = ces4_bay_pm25_LN_Asthma,
+  aes(
+      x = PM2.5,
+      y = LN_Asthma
+    )
+) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_line(
+    aes(
+      x = PM2.5,
+      y = PM2.5 * optimization$par[1] + optimization$par[2]
+    ),
+    color = "red",
+    linetype = 2,
+    size = 2
+  )
+```
+
+
+
+
+# Calculation of residuals for regression line after log transformation
+```{r}
+slope <- optimization$par[1]
+yintercept <- optimization$par[2]
+
+best_fit_candidate <- slope *  ces4_bay_pm25_LN_Asthma$PM2.5 + yintercept 
+
+residuals <-  ces4_bay_pm25_LN_Asthma$LN_Asthma - best_fit_candidate
+
+mean(residuals)
+```
+
+```{r}
+model <- lm(LN_Asthma ~ PM2.5, ces4_bay_pm25_LN_Asthma)
+
+summary(model)
+```
+
+```{r}
+ces4_bay_pm25_LN_Asthma_Residuals <-
+      ces4_bay_pm25_LN_Asthma  %>% 
+      mutate(residuals 
+  ) 
+```
+
+# Residual scatter plot of PM2.5 vs. residuals
+```{r}
+ggplot(
+  data = ces4_bay_pm25_LN_Asthma_Residuals,
+  aes(
+      x = PM2.5,
+      y = residuals
+  )
+) +
+  geom_point() +
+    geom_smooth(method = "lm")
+```
+
+
+Result:
+
+Based on the residual scatter plot from the regression model after log transformation, the residuals above and under "zero slope line" is much more even which implies the under- or over- estimation situations much more equally occurred. Therefore, after the log transformation is essential and the regression line after log transformation is actually a better fit.
+
+
+
+# Residual density plot after log transformation of Asthma prevalence
+```{r}
+plot(density(residuals(model)))
+```
+
+
+Result: 
+
+The positive residual means under-estimation and the negative residual means over-estimation. Hence, a low residual As comparing the residual density plot after log transformation with the one before, it appears that the residual distribution has changed from right skewed to be a much more symmetric distribution after log transformation. The residual density now is somewhat more close to a normal distribution with 0 mean. Therefore, it shows the good fit of regression model after log transformation and further implies the necessity of log transformation of Asthma prevalence. 
+
+
+```{r}
+summary(residuals(model))
+
+ces4_bay_pm25_LN_Asthma_Residuals_sort <- ces4_bay_pm25_LN_Asthma_Residuals[order(residuals),]
+
+
+head(ces4_bay_pm25_LN_Asthma_Residuals_sort, 1)
+
+```
+
+
+Result:
+
+The lowest residual in the regression estimation is "-2.003361" which occurs in the Census Tract "6085513000" because of the over-estimation of the Asthma prevalence by the regression model. 
+
+
+```{r}
+residuals_pal <- colorNumeric(
+  palette = "Reds",
+  domain = ces4_bay_pm25_LN_Asthma_Residuals$residuals
+)
+
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = ces4_bay_pm25_LN_Asthma_Residuals,
+    fillColor = ~residuals_pal(residuals),
+    color = "white",
+    weight = 0.5,
+    fillOpacity = 0.5,
+    label = ~residuals
+  )
+```
+
+
