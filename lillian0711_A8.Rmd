@@ -1,0 +1,398 @@
+---
+title: 'Assignment 8'
+author: "Lillian (Wei) Hung"
+date: "11/16/2021"
+output: html_document
+---
+
+```{r   setup, include=FALSE   }
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r}
+library(tigris)
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(censusapi)
+library(leaflet)
+library(StatMatch)
+library(survey)
+```
+
+```{r}
+pums_2014_2019 <- readRDS("pums_2014_2019_wts.rds")
+```
+
+```{r}
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+
+ca_pumas <-
+  pumas("CA", cb = T, progress_bar = F)
+
+bay_county_names <-
+  c(
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma"
+  )
+
+bay_counties <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME %in% bay_county_names)
+
+bay_pumas <-
+  ca_pumas %>% 
+  st_centroid() %>% 
+  .[bay_counties, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(ca_pumas %>% select(GEOID10)) %>% 
+  st_as_sf()
+```
+
+
+```{r}
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = bay_pumas,
+    weight = 1,
+    color = "gray",
+    label = ~PUMACE10
+  ) %>% 
+  addMarkers(
+    lng = -121.6949808,
+    lat = 37.9552428
+  ) %>% 
+  addPolygons(
+    data = bay_pumas %>% 
+      filter(PUMACE10 == "01309")
+  )
+```
+`
+
+```{r}
+pums_bart <- 
+  pums_2014_2019 %>%
+  mutate(
+    PWGTP = as.numeric(PWGTP),
+    bart = ifelse(
+      JWTR %in% c("4"),
+      PWGTP,
+      0
+    )
+  ) %>% 
+  group_by(PUMA, year) %>% 
+  summarize(
+    pop = sum(PWGTP),
+    bart = sum(bart)
+  )
+```
+
+```{r}
+pums_pal <- colorNumeric(
+  palette = "YlOrRd",
+  domain = pums_bart %>% 
+    filter(year == 2017) %>% 
+    pull(pop)
+)
+
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = pums_bart %>% 
+      filter(year == 2017) %>% 
+      right_join(bay_pumas %>% select(PUMA = PUMACE10)) %>% 
+      st_as_sf(),
+    fillColor = ~pums_pal(pop),
+    color = "white",
+    weight = 1,
+    fillOpacity = 0.5,
+    label = ~paste0(PUMA,": Population ", pop)
+  )
+```
+
+
+```{r}
+pums_pal <- colorNumeric(
+  palette = "GnBu",
+  domain = pums_bart %>% 
+    filter(year == 2017) %>% 
+    pull(bart)
+)
+
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = pums_bart %>% 
+      filter(year == 2017) %>% 
+      right_join(bay_pumas %>% select(PUMA = PUMACE10)) %>% 
+      st_as_sf(),
+    fillColor = ~pums_pal(bart),
+    color = "white",
+    weight = 1,
+    fillOpacity = 0.5,
+    label = ~paste0(PUMA,": ", bart, " BART commute riders")
+  )
+```
+
+```{r}
+pums_bart_clean <-
+  pums_bart %>% 
+  select(-pop) %>% 
+  pivot_wider(
+    names_from = year,
+    values_from = bart
+  )
+```
+
+```{r}
+obs_matrix <-
+  pums_bart_clean %>% 
+  ungroup() %>% 
+  select(`2014`,`2015`,`2016`,`2017`) %>% 
+  as.matrix()
+
+dist_matrix <- mahalanobis.dist(obs_matrix)
+
+rownames(dist_matrix) <- pums_bart_clean$PUMA
+colnames(dist_matrix) <- pums_bart_clean$PUMA
+
+match <- dist_matrix["01309",] %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(
+    PUMA = rowname,
+    match = "."
+  ) %>% 
+  right_join(
+    pums_bart_clean
+  ) %>% 
+  arrange(match) %>% 
+  .[1:11, ] %>% 
+  left_join(bay_pumas %>% select(PUMA = PUMACE10)) %>% 
+  st_as_sf()
+
+```
+
+
+```{r}
+leaflet() %>% 
+  addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = match[1, ],
+    color = "red",
+    label = ~PUMA
+  ) %>% 
+  addPolygons(
+    data = match[-1, ],
+    label = ~PUMA
+  )
+```
+
+```{r}
+match_pumas <-
+  match %>% 
+  filter(!PUMA %in% c("01309")) %>% 
+  st_drop_geometry() %>% 
+  select(-match) %>% 
+  pivot_longer(
+    -PUMA,
+    names_to = "year",
+    values_to = "bart"
+  ) %>%
+  group_by(
+    year
+  ) %>% 
+  summarize(
+    bart = mean(bart),
+    PUMA = "Similar PUMAs"
+  )
+
+treatment_pumas <-
+  match %>% 
+  filter(PUMA %in% c("01309")) %>% 
+  select(-match) %>% 
+  st_drop_geometry() %>% 
+  pivot_longer(
+    -PUMA,
+    names_to = "year",
+    values_to = "bart"
+  )
+
+rbind(
+  treatment_pumas,
+  match_pumas
+) %>% 
+  ggplot(
+    aes(
+      x = as.numeric(year),
+      y = bart,
+      color = PUMA
+    )
+  ) +
+  geom_line() +
+  geom_vline(xintercept = 2018, linetype = "dashed") +
+  labs(
+    title = " Brentwood & Oakley Citiesvs. control neighborhoods, BART ridership",
+    x = "Year",
+    y = "BART commute riders"
+  )
+```
+
+Result:
+
+Based on the graph, it seems that the Antioch BART station in the selected PUMA has an increase in BART ridership relative to the control PUMAs.
+
+
+
+
+
+```{r}
+transit_did <-
+  match %>% 
+  st_drop_geometry() %>% 
+  select(-match) %>% 
+  pivot_longer(
+    -PUMA,
+    names_to = "year",
+    values_to = "bart"
+  ) %>% 
+  mutate(
+    year = year %>% as.numeric(),
+    time = ifelse(year >= 2018, 1, 0),
+    treated = ifelse(PUMA == "01309", 1, 0)
+  )
+
+did_reg <- lm(bart ~ treated*time, data = transit_did)
+
+summary(did_reg)
+```
+
+Results:
+
+1. The baseline effect size of “treatment” is 470.68, which is positive and very significant with p value less than 0.001. This represents the difference in ridership between treatment (PUMA: 01309, Brentwood & Oakley Cities) and control PUMAs as the time (of treatment) effect is controlled. 
+The effect size of “time” (of treatment) is 207.28, which is also positive and significant with p value less than 0.01. This time effect represents the change in the ridership before 2018 and after 2018 as treatment effect is controlled.
+As baseline treatment and time effect have been controlled for, the actual effect of treated:time is estimated as 1097.22, which is similarly very significant with p value less than 0.001. This represents the treatment, the Antioch BART station opened in mid-2018, as having had an estimated impact of about 1097.22 new BART commuters. Based on this DiD analysis, it would be expected to show an increase in train ridership in the selected PUMA (01309) due to the opening of the Antioch BART station relative to similar populations in the Bay Area that did not experience a change in train access. The R2 is 0.668, meaning the model has quit a lot of explanatory power by including important factors such as treatment, time and the interaction (differences in differences) in the model. 
+
+
+2. The analysis was performed under the following assumptions:
+
+a)	The outcome variable, bart, is assumed to present the most pronounced or important possible causal effect of a BART station to evaluate. 
+b)	It is assumed that respondents picked “Subway or elevated car” in the ACS
+questionnaire to represent a BART commute trip. Hence, commute ridership is assumed to be a suitable measure of the impact of a BART station in a community.
+c)	The BART station at Brentwood & Oakley Cities opened in mid 2018 and the PUMS responses were sampled from earlier in the year. 2 years of post-treatment were used due to data availability. Since some of our matched PUMAs in the control groups are close to the Milpitas, the DiD estimate may be presenting the extra ridership due to the opening of Antioch BART station.
+D)	The particular PUMA (01309, Brentwood & Oakley Cities) chose as “treated” may have been too big to see the relevant effect, which may have been mainly on neighborhoods within biking/walking distance of the station. 10 matching PUMAs using Mahalanobis distance were considered, but maybe fewer or more PUMAs should have been used.
+E)	The analysis here considered to match only 2014-2017 train ridership. But other variables such as employment, income …, etc. may need to be considered also.
+F)	Due to the low sample size of PUMAS, the analysis may include greater noise.
+G)	The replicate weights was not considered here.
+
+
+
+
+
+
+
+
+
+
+
+#Re-Weight
+
+```{r}
+pums_2014_2019 <- readRDS("pums_2014_2019_wts.rds")
+
+pums_2014_2019 <- pums_2014_2019 %>%   
+  mutate(
+    PUMA = str_pad(public_use_microdata_area,5,"left","0")) %>%   
+right_join(transit_did)%>%
+  group_by(
+    PUMA,year
+  ) %>% summarise_all(first)%>%filter_all(all_vars(!is.na(.))) 
+```
+
+```{r}
+lm_design <- svrepdesign(
+  data = pums_2014_2019,
+  type = "ACS",
+  repweights = pums_2014_2019[ ,9:88],
+  weights = ~as.numeric(PWGTP)
+)
+```
+
+
+```{r}
+lm_model <- svyglm(
+  formula = bart ~ treated + time + treated *time,
+  family = gaussian(),
+  design =lm_design
+)
+
+summary(lm_model)
+
+```
+
+Result:
+
+As the weights are considered in the regression model, most of the Std. Error of the coefficient estimates reduced except for "Time". Hence, the significance of treatment and DiD interaction effects become greater. On the contrary, the effect of Time is not significant due to the increase of the Std. Error.
+
+
+
+
+
+
+# Plot of ridership vs Time for 10 matched PUMAs and the treatment
+```{r}
+match_pumas <-
+  match %>% 
+  filter(!PUMA %in% c("01309")) %>% 
+  st_drop_geometry() %>% 
+  select(-match) %>% 
+  pivot_longer(
+    -PUMA,
+    names_to = "year",
+    values_to = "bart"
+  ) %>%
+  group_by(
+    year
+  )
+
+treatment_pumas <-
+  match %>% 
+  filter(PUMA %in% c("01309")) %>% 
+  select(-match) %>% 
+  st_drop_geometry() %>% 
+  pivot_longer(
+    -PUMA,
+    names_to = "year",
+    values_to = "bart"
+  )
+
+rbind(
+  treatment_pumas,
+  match_pumas
+) %>% 
+  ggplot(
+    aes(
+      x = as.numeric(year),
+      y = bart,
+      color = PUMA
+    )
+  ) +
+  geom_line() +
+  geom_vline(xintercept = 2018, linetype = "dashed") +
+  labs(
+    title = " Brentwood & Oakley Citiesvs. control neighborhoods, BART ridership",
+    x = "Year",
+    y = "BART commute riders"
+  )
+```
+
+
