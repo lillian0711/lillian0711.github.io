@@ -1,0 +1,1587 @@
+
+---
+title: "218Y Assignment 1"
+author: "Lillian (Wei) Hung"
+date: "2022/01/17"
+output: html_document
+---
+
+
+```{r   setup, include=FALSE   }
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+
+```{r}
+library(tidycensus)
+# census_api_key("c8100bd1d2b42c5942616b53158bee261f69edbe", install=TRUE)
+# readRenviron("~/.Renviron")
+```
+
+```{r}
+library(censusapi)
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+library(readxl)
+library(writexl)
+library(plotly)
+
+options(tigris_use_cache = TRUE)
+
+Sys.setenv(CENSUS_KEY="c8100bd1d2b42c5942616b53158bee261f69edbe")
+```
+
+```{r}
+# Ownercosts <-
+#  getCensus(
+#    name = "acs/acs5",
+#   vintage = 2019,
+#   region = "place:*",
+#   regionin = "state:06",
+#   vars = "group(B25095)"
+# )
+# saveRDS(Ownercosts,"Ownercosts.rds")
+
+Ownercosts <- readRDS("Ownercosts.rds")
+```
+
+```{r}
+# Tenure_Housingcosts <-
+#  getCensus(
+#   name = "acs/acs5",
+#  vintage = 2019,
+#  region = "place:*",
+#   regionin = "state:06",
+#  vars = "group(B25106)"
+#  )
+
+# saveRDS(Tenure_Housingcosts,"Tenure_Housingcosts.rds")
+
+Tenure_Housingcosts <- readRDS("Tenure_Housingcosts.rds")
+```
+
+```{r}
+# acs_vars_2019_5yr <-
+# listCensusMetadata(
+#    name = "2019/acs/acs5",
+#    type = "variables"
+#  )
+
+# write_csv(acs_vars_2019_5yr,"acs_vars_2019_5yr.csv")
+# saveRDS(acs_vars_2019_5yr,"acs_vars_2019_5yr.rds")
+
+acs_vars_2019_5yr <- readRDS("acs_vars_2019_5yr.rds")
+```
+
+B25095 ----------------
+```{r}
+Ownercosts_EPA <-
+  Ownercosts  %>% 
+  filter(
+    place == 20956 
+ )  %>% 
+     select(!c(state,place,NAME,GEO_ID) & !ends_with(c("EA","MA","M"))) %>%
+      pivot_longer(
+        cols = starts_with("B"),
+        names_to = "name",
+        values_to = "Householders"
+  ) %>%
+      left_join(
+        acs_vars_2019_5yr %>% 
+          select(name, label)
+      ) %>% 
+      separate(
+        label,
+        into = c(NA,NA,"Income"),
+        sep = "!!"
+      ) %>% 
+      left_join(
+        acs_vars_2019_5yr %>% 
+          select(name, label)
+      ) %>% 
+      select(-name) %>% 
+      separate(
+        label,
+        into = c(NA,NA,NA,"Burden_Percentage"),
+        sep = "!!"
+      )
+```
+
+```{r}
+Total <- 3076
+Ownercosts_EPA_2 <-
+    Ownercosts_EPA %>%
+      filter(!is.na(Burden_Percentage))  %>%
+    mutate(
+      Percentage = (Householders /Total) * 100
+    )
+
+# write_csv(Ownercosts_EPA_2,"Ownercosts_EPA_2.csv")
+
+Ownercosts_Plot <- read_csv("Ownercosts2.csv")
+```
+
+Plot 1
+```{r}
+Ownercosts_Plot %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Burden_Percentage %>% factor(levels 
+            =c(
+              "< 20",
+              "20-24.9",
+              "25-29.9",
+              "30-34.9",
+              "35-39.9",
+              "40-49.9",
+              "over 50",
+              "NC"
+     )),
+        y =  Householders,
+        fill = Income
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Burden Percentage",
+    y = "Householders",
+    title = "      East Palo Alto Monthly Owner Costs \n      As a Percentage Of Household Income"
+  )
+```
+
+Plot2
+```{r}
+Ownercosts_Plot %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Burden_Percentage %>% factor(levels 
+            =c(
+              "< 20",
+              "20-24.9",
+              "25-29.9",
+              "30-34.9",
+              "35-39.9",
+              "40-49.9",
+              "over 50",
+              "NC"
+     )),
+        y =  Percentage,
+        fill = Income
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Burden Percentage",
+    y = "Householder Percentage",
+    title = "         East Palo Alto Monthly Owner Costs \n        As a Percentage Of Household Income"
+  )
+```
+
+Plot 3
+```{r}
+Ownercosts_Plot %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Burden_Percentage %>% factor(levels 
+            =c(
+              "< 20",
+              "20-24.9",
+              "25-29.9",
+              "30-34.9",
+              "35-39.9",
+              "40-49.9",
+              "over 50",
+              "NC"
+     )),
+        y =  Householders,
+        fill = Income
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Burden Percentage",
+    y = "Householders",
+    title = "      East Palo Alto Monthly Owner Costs \n      As a Percentage Of Household Income"
+  )+
+   coord_flip()
+   theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Plot4
+```{r}
+Ownercosts_Plot %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Burden_Percentage %>% factor(levels 
+            =c(
+              "< 20",
+              "20-24.9",
+              "25-29.9",
+              "30-34.9",
+              "35-39.9",
+              "40-49.9",
+              "over 50",
+              "NC"
+     )),
+        y =  Percentage,
+        fill = Income
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Burden Percentage",
+    y = "Householder Percentage",
+    title = "         East Palo Alto Monthly Owner Costs \n        As a Percentage Of Household Income"
+  )+
+   coord_flip()
+   theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Plot5
+```{r}
+Ownercosts_Plot %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Burden_Percentage %>% factor(levels 
+            =c(
+              "< 20",
+              "20-24.9",
+              "25-29.9",
+              "30-34.9",
+              "35-39.9",
+              "40-49.9",
+              "over 50",
+              "NC"
+     )),
+        y =  Householders,
+        fill = Income
+      ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Burden Percentage",
+    y = "Householders",
+    title = "      East Palo Alto Monthly Owner Costs \n      As a Percentage Of Household Income"
+  )+
+   coord_flip()
+   theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Plot6
+```{r}
+Ownercosts_Plot %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Burden_Percentage %>% factor(levels 
+            =c(
+              "< 20",
+              "20-24.9",
+              "25-29.9",
+              "30-34.9",
+              "35-39.9",
+              "40-49.9",
+              "over 50",
+              "NC"
+     )),
+        y =  Percentage,
+        fill = Income
+      ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Burden Percentage",
+    y = "Householder Percentage",
+    title = "         East Palo Alto Monthly Owner Costs \n        As a Percentage Of Household Income"
+  )+
+   coord_flip()
+   theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Owner Costs Burden
+```{r}
+burden_threshold <- 0.3
+Ownercosts_EPA_total_Burden <-
+  Ownercosts_Plot  %>%
+  filter (!(Burden_Percentage == "NC")) %>%
+  mutate(
+     Mid_income = ifelse(
+      Income == "Less than $10,000", 5000,ifelse(
+      Income == "$10,000 to $19,999", 15000, ifelse(
+      Income == "$20,000 to $34,999", 27500, ifelse(  
+      Income == "$35,000 to $49,999", 42500, ifelse(
+      Income == "$50,000 to $74,999", 62500, ifelse(
+      Income == "$75,000 to $99,999", 87500, ifelse(  
+      Income == "$100,000 to $149,999", 125000,175000
+  ) ) ) ) ) ) ) ) %>%
+  mutate(
+      Mid_Burden_Percentage = ifelse(
+      Burden_Percentage == "< 20", 10,ifelse(
+      Burden_Percentage == "20-24.9", 22.5,ifelse(
+      Burden_Percentage == "25-29.9", 27.5,ifelse(
+      Burden_Percentage == "30-34.9", 32.5,ifelse( 
+      Burden_Percentage == "35-39.9", 37.5,ifelse(
+      Burden_Percentage == "40-49.9", 45, 55
+  ) ) ) ) ) ) )  %>%
+  mutate(
+    Total_income=Mid_income*Householders,
+    income_threshold = Mid_income*burden_threshold,
+    Cost=(Mid_Burden_Percentage/100) *Mid_income,
+    Burden= Cost-income_threshold,
+    Total_Burden=Burden*Householders
+   )  %>% 
+  mutate(
+    Burdened = ifelse(
+      Burden >0, Householders,0),
+    Excess = ifelse(
+        Burden <0,  Total_Burden,0),  
+    Total_Burden = ifelse(
+      Burden >0,  Total_Burden,0)
+  )  
+
+Ownercosts_EPA_total_Burden_sum <-
+  Ownercosts_EPA_total_Burden  %>% 
+  group_by(Income) %>% 
+  summarize(
+    Burdened = sum(Burdened),
+    Householders = sum(Householders),
+    Total_Burden = sum(Total_Burden),
+    Excess = sum(Excess)
+ )  %>% 
+  summarize(
+    Burdened = sum(Burdened),
+    Householders = sum(Householders),
+    Total_Burden = sum(Total_Burden),
+    Excess = sum(Excess)
+ ) %>% 
+  mutate(
+  Burdened_perc =  Burdened/Householders
+  )
+```
+
+```{r}
+Ownercosts_EPA_total_Burden_sum
+```
+
+```{r}
+burden_threshold <- 0.3
+
+Ownercosts_perc_EPA <-
+  Ownercosts  %>% 
+  filter(
+    place == 20956 
+ ) 
+```
+
+B25106 ---------------
+```{r}
+Tenure_Housingcosts_EPA <-
+  Tenure_Housingcosts  %>% 
+  filter(
+    place == 20956 
+ )  %>% 
+     select(!c(state,place,NAME,GEO_ID) & !ends_with(c("EA","MA","M"))) %>%
+      pivot_longer(
+        cols = starts_with("B"),
+        names_to = "name",
+        values_to = "Householders"
+  ) %>%
+      left_join(
+        acs_vars_2019_5yr %>% 
+          select(name, label)
+      ) %>% 
+      separate(
+        label,
+        into = c(NA,NA,"Tenure"),
+        sep = "!!"
+      ) %>% 
+      left_join(
+        acs_vars_2019_5yr %>% 
+          select(name, label)
+      ) %>% 
+      separate(
+        label,
+        into = c(NA,NA,NA,"Housingcosts"),
+        sep = "!!"
+      ) %>% 
+      left_join(
+        acs_vars_2019_5yr %>% 
+          select(name, label)
+      ) %>% 
+      select(-name) %>% 
+      separate(
+        label,
+        into = c(NA,NA,NA,NA,"Income_Percentage"),
+        sep = "!!"
+      )
+
+# write_csv(Tenure_Housingcosts_EPA,"Tenure_Housingcosts_EPA.csv")
+
+Tenure_Housingcosts_EPA_2 <- read_csv("Tenure_Housingcosts_EPA_2.csv")
+
+```
+
+```{r}
+Total_O <- 3076
+Total_R <- 4648
+Tenure_Housingcosts_EPA_total <-
+    Tenure_Housingcosts_EPA_2 %>%
+      filter(!is.na(Income_Percentage))  %>%
+      mutate(
+             Percentage = ifelse(
+      Tenure == "Owner-occupied", (Householders /Total_O) * 100,
+      (Householders /Total_R) * 100
+    )
+  )
+```
+
+Plot 7
+```{r}
+Tenure_Housingcosts_EPA_total %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "< $20,000",
+              "$20,000-$34,999",
+              "$35,000-$49,999",
+              "$50,000-$74,999",
+              "$75,000 or more"
+     )),
+        y =  Householders,
+        fill = Tenure
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householders",
+    title = "East Palo Alto Housing Cost as a Percentage of Household Income\n        Owner-occupied vs. Renter-occupied",
+  )+
+   theme(legend.position="bottom")
+```
+
+Plot 8
+```{r}
+Tenure_Housingcosts_EPA_total %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =rev(c(
+              "< $20,000",
+              "$20,000-$34,999",
+              "$35,000-$49,999",
+              "$50,000-$74,999",
+              "$75,000 or more"
+     ))),
+        y =  Householders,
+        fill = Tenure
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householders",
+    title = "East Palo Alto Housing Cost as a Percentage of Household Income\n                    Owner-occupied vs. Renter-occupied",
+  )+
+   coord_flip()
+   theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Plot 9
+```{r}
+Tenure_Housingcosts_EPA_total %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =rev(c(
+              "< $20,000",
+              "$20,000-$34,999",
+              "$35,000-$49,999",
+              "$50,000-$74,999",
+              "$75,000 or more"
+     ))),
+        y =  Householders,
+        fill = Tenure
+      ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householders",
+    title = "East Palo Alto Housing Cost as a Percentage of Household Income\n                    Owner-occupied vs. Renter-occupied",
+  )+
+   coord_flip()
+   theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Plot 10
+```{r}
+Tenure_Housingcosts_EPA_total %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "< $20,000",
+              "$20,000-$34,999",
+              "$35,000-$49,999",
+              "$50,000-$74,999",
+              "$75,000 or more"
+     )),
+        y =  Percentage,
+        fill = Tenure
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Household Percentages",
+    title = "East Palo Alto Housing Cost as a Percentage of Household Income\n                  Owner-occupied vs. Renter-occupied",
+  )+
+   theme(legend.position="bottom")
+```
+
+Plot 11
+```{r}
+Tenure_Housingcosts_EPA_total %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =rev(c(
+              "< $20,000",
+              "$20,000-$34,999",
+              "$35,000-$49,999",
+              "$50,000-$74,999",
+              "$75,000 or more"
+     ))),
+        y =   Percentage,
+        fill = Tenure
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Household Percentages",
+    title = "East Palo Alto Housing Cost as a Percentage of Household Income\n                    Owner-occupied vs. Renter-occupied",
+  )+
+   coord_flip()
+   theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Plot 12
+```{r}
+Tenure_Housingcosts_EPA_total %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =rev(c(
+              "< $20,000",
+              "$20,000-$34,999",
+              "$35,000-$49,999",
+              "$50,000-$74,999",
+              "$75,000 or more"
+     ))),
+        y =   Percentage,
+        fill = Tenure
+      ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Household Percentages",
+    title = "East Palo Alto Housing Cost as a Percentage of Household Income\n                    Owner-occupied vs. Renter-occupied",
+  )+
+   coord_flip()
+   theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Housing Burden for Owner-occupied and Renter-occupied Householders
+```{r}
+Tenure_Housingcosts_EPA_total_Burden <-
+  Tenure_Housingcosts_EPA_total  %>%
+  mutate(
+     Cost = ifelse(
+      Housingcosts == "< $20,000", 10000,ifelse(
+      Housingcosts == "$20,000-$34,999", 27500, ifelse(
+      Housingcosts == "$35,000-$49,999", 42500, ifelse(  
+      Housingcosts == "$50,000-$74,999", 62500, 87500   
+  ) ) ) ) ) %>%
+  mutate(
+      Mid_income_Percentage = ifelse(
+      Income_Percentage == "< 20", 10,ifelse(
+      Income_Percentage == "20-29", 25, 35
+  ) ) ) %>%
+  mutate(
+    Income=Cost/(Mid_income_Percentage/100),
+    Total_income=Income*Householders,
+    income_threshold = Income*burden_threshold,
+    Burden= Cost-income_threshold,
+    Total_Burden=Burden*Householders
+   )  %>% 
+  mutate(
+    Burdened = ifelse(
+      Burden >0, Householders,0),
+    Excess = ifelse(
+        Burden <0,  Total_Burden,0),  
+    Total_Burden = ifelse(
+      Burden >0,  Total_Burden,0)
+  )  
+    
+Tenure_Housingcosts_EPA_total_Burden_sum <-
+  Tenure_Housingcosts_EPA_total_Burden  %>% 
+  group_by(Tenure) %>% 
+  summarize(
+    Burdened = sum(Burdened),
+    Householders = sum(Householders),
+    Total_Burden = sum(Total_Burden),
+    Excess = sum(Excess)
+  ) %>% 
+  mutate(
+    Burdened_perc = Burdened/Householders
+)
+```
+
+```{r}
+Tenure_Housingcosts_EPA_total_Burden_sum  
+```
+
+
+# --------------------------------------
+
+Part II
+-- San Mateo County Property data (exemption)
+
+```{r}
+# install.packages("remotes",force = TRUE)
+remotes::install_github("yonghah/esri2sf")
+
+library(esri2sf)
+```
+
+```{r}
+
+epa_zoning <- esri2sf("https://services8.arcgis.com/0IC8hha3hgQkmGoa/arcgis/rest/services/EastPaloAltoZoning_2021_WFL1/FeatureServer/1")
+
+smc_exemption <- read_csv("https://datahub.smcgov.org/api/views/pmvw-bs84/rows.csv?accessType=DOWNLOAD")
+
+```
+
+```{r}
+mapview(epa_zoning)
+```
+
+```{r}
+epa_exemption <- smc_exemption %>% 
+   mutate(
+    APN = `Parcel Number` %>% 
+      str_replace_all("-","")
+  ) %>% 
+  filter(APN %in% epa_zoning$APN) %>% 
+  left_join(epa_zoning) %>% 
+  st_as_sf() 
+```
+
+```{r}
+EPA_exemption  <- epa_exemption  %>% 
+    mutate (
+    owner= ifelse(
+      Exemption == "7000", 1, ifelse(
+      Exemption == "5600", 1, 0)
+  )) %>%
+  rename (Assessed_Value = 'Assessed Value',
+          Net_Value = 'Net Value',
+          Total_Charge = 'Total Charge', 
+          Fiscal_Year='Fiscal Year'   
+   )  %>%
+   mutate (
+    Year= ifelse(
+      Fiscal_Year == "2015/2016", 2016, ifelse(
+      Fiscal_Year == "2016/2017", 2017, ifelse(  
+      Fiscal_Year == "2017/2018", 2018, 2019)
+  ))) %>%
+ mutate (
+    Housing_Type = ifelse(
+      owner == 1, "Owner", "Renter")
+  )  
+```
+
+```{r}
+EPA_exemption_Owner  <-
+   EPA_exemption   %>%
+   filter(owner == "1")
+
+EPA_exemption_Renter <-
+  EPA_exemption %>%
+  filter(owner== "0")
+
+EPA_exemption_Owner_2019 <-
+  EPA_exemption %>%
+  filter(owner== "1") %>%
+  filter(Year == "2019")
+
+EPA_exemption_Renter_2019 <-
+  EPA_exemption %>%
+  filter(owner=="0") %>%
+  filter(Year == "2019")
+```
+
+mapping for all zoning vs.Owner
+```{r}
+leaflet() %>%
+  addProviderTiles(provider = providers$CartoDB.Positron) %>%
+  addPolygons(
+    data = EPA_exemption  %>%
+      filter(Year == "2019"),
+    fillColor = "yellow",
+    color = "black",
+    weight = 0.5
+   )  %>%
+  addPolygons(
+    data = EPA_exemption %>%
+      filter(Year== "2019") %>%
+      filter(Exemption  %in% c(5600,7000)),
+    fillColor = "green",
+    color = "black",
+    weight = 0.5,
+    fillOpacity = 1
+   )
+```
+
+mapping for R-LD vs. Owner
+```{r}
+EPA_exemption_RLD  <-
+   EPA_exemption   %>%
+   filter(New_Zone == "R-LD")
+```
+
+```{r}
+leaflet() %>%
+  addProviderTiles(provider = providers$CartoDB.Positron) %>%
+  addPolygons(
+    data = EPA_exemption_RLD  %>%
+      filter(Year == "2019"),
+    fillColor = "yellow",
+    color = "black",
+    weight = 0.5
+   )  %>%
+  addPolygons(
+    data = EPA_exemption_RLD %>%
+      filter(Year == "2019") %>%
+      filter(Exemption  %in% c(5600,7000)),
+    fillColor = "blue",
+    color = "black",
+    weight = 0.5,
+    fillOpacity = 1
+  )  
+```
+
+```{r}
+EPA_exemption_average <-
+  EPA_exemption %>% 
+   group_by(New_Zone, Year, Housing_Type) %>% 
+   summarize(
+    Average_Assessed_Value = mean(Assessed_Value),
+    Average_Net_Value = mean(Net_Value),
+    Acres_sum = sum(Acres),
+    Taxes_sum= sum(Taxes),
+    Total_Charge_sum =sum(Total_Charge),
+    Owner_count=sum(owner),
+    count = n()
+   )   
+```
+
+```{r}
+# summary(EPA_exemption)
+```
+
+Area (Acres) for Owner-occupied property in East Palo Alto 
+```{r}
+Acres_pal <- colorBin(
+  palette = "Green",
+  bins = c(0,10,50,100,150,200,max(EPA_exemption_Owner_2019$Acres, na.rm = T))
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = EPA_exemption_Owner_2019,
+    fillColor = ~Acres_pal(Acres),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 0.5,
+    label = ~round(Acres)
+  ) %>% 
+  addLegend(
+    data = EPA_exemption_Owner_2019,
+    pal = Acres_pal,
+    values = ~Acres,
+    title = "2018/2019 Area (Acres) <br>for Owner-occupied Property <br>in East Palo Alto"
+  )
+```
+
+Area (Acres) for Renter-occupied Property in East Palo Alto 
+```{r}
+Acres_pal <- colorBin(
+  palette = "blue",
+  bins = c(0,10,50,100,150,200,max(EPA_exemption_Renter_2019$Acres, na.rm = T))
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = EPA_exemption_Renter_2019,
+    fillColor = ~Acres_pal(Acres),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 0.5,
+    label = ~round(Acres)
+  ) %>% 
+  addLegend(
+    data = EPA_exemption_Renter_2019,
+    pal = Acres_pal,
+    values = ~Acres,
+    title = "2018/2019 Area (Acres) <br>for Renter-occupied Property <br>in East Palo Alto"
+  )
+```
+
+APN_AREA for Owner-occupied Property in East Palo Alto 
+```{r}
+APN_AREA_pal <- colorBin(
+  palette = "Green",
+  bins = c(0,2000,4000,6000,8000,10000,20000,max(EPA_exemption_Owner_2019$APN_AREA, na.rm = T))
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = EPA_exemption_Owner_2019,
+    fillColor = ~APN_AREA_pal(APN_AREA),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 0.5,
+    label = ~round(APN_AREA)
+  ) %>% 
+  addLegend(
+    data = EPA_exemption_Owner_2019,
+    pal = APN_AREA_pal,
+    values = ~APN_AREA,
+    title = " 2018/2019 APN_AREA <br>for Owner-occupied Property <br>in East Palo Alto"
+  )
+```
+
+APN_AREA for Renter-occupied property in East Palo Alto 
+```{r}
+APN_AREA_pal <- colorBin(
+  palette = "blue",
+  bins = c(0,2000,4000,6000,8000,10000,20000,max(EPA_exemption_Renter_2019$APN_AREA, na.rm = T))
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = EPA_exemption_Renter_2019,
+    fillColor = ~APN_AREA_pal(APN_AREA),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 0.5,
+    label = ~round(APN_AREA)
+  ) %>% 
+  addLegend(
+    data = EPA_exemption_Renter_2019,
+    pal = APN_AREA_pal,
+    values = ~APN_AREA,
+    title = "2018/2019 APN_AREA <br>for Owner-occupied Property <br>in East Palo Alto"
+  )
+```
+
+Shape_Area for Owner-occupied Property in East Palo Alto 
+```{r}
+Shape__Area_pal <- colorBin(
+  palette = "Green",
+  bins = c(0,500,1000,2000,3000,4000,5000,max(EPA_exemption_Owner_2019$Shape__Area, na.rm = T))
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = EPA_exemption_Owner_2019,
+    fillColor = ~Shape__Area_pal(Shape__Area),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 0.5,
+    label = ~round(Shape__Area)
+  ) %>% 
+  addLegend(
+    data = EPA_exemption_Owner_2019,
+    pal = Shape__Area_pal,
+    values = ~Shape__Area,
+    title = "2018/2019 Shape_Area <br>for Owner-occupied Property <br>in East Palo Alto"
+  )
+```
+
+Shape_Area for Renter-occupied Property in East Palo Alto 
+```{r}
+Shape__Area_pal <- colorBin(
+  palette = "blue",
+  bins = c(0,500,1000,2000,3000,4000,5000,max(EPA_exemption_Renter_2019$Shape__Area, na.rm = T))
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = EPA_exemption_Renter_2019,
+    fillColor = ~Shape__Area_pal(Shape__Area),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 0.5,
+    label = ~round(Shape__Area)
+  ) %>% 
+  addLegend(
+    data = EPA_exemption_Renter_2019,
+    pal = Shape__Area_pal,
+    values = ~Shape__Area,
+    title = "2018/2019 Shape_Area <br>for Renter-occupied Property<br>in East Palo Alto"
+  )
+```
+
+Shape_Length for Owner-occupied Property in East Palo Alto 
+```{r}
+Shape__Length_pal <- colorBin(
+  palette = "Green",
+  bins = c(0,20,50,100,150,200,500,1000,3000,5000,max(EPA_exemption_Owner_2019$Shape__Length, na.rm = T))
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = EPA_exemption_Owner_2019,
+    fillColor = ~Shape__Length_pal(Shape__Length),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 0.5,
+    label = ~round(Shape__Length)
+  ) %>% 
+  addLegend(
+    data = EPA_exemption_Owner_2019,
+    pal = Shape__Length_pal,
+    values = ~Shape__Length,
+    title = "2018/2019 Shape_Length for Owner-occupied Property in East Palo Alto"
+  )
+```
+
+Shape_Length for Renter-occupied Property in East Palo Alto 
+```{r}
+Shape__Length_pal <- colorBin(
+  palette = "blue",
+  bins = c(0,20,50,100,150,200,500,1000,3000,5000,max(EPA_exemption_Renter_2019$Shape__Length, na.rm = T))
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = EPA_exemption_Renter_2019,
+    fillColor = ~Shape__Length_pal(Shape__Length),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 0.5,
+    label = ~round(Shape__Length)
+  ) %>% 
+  addLegend(
+    data = EPA_exemption_Renter_2019,
+    pal = Shape__Length_pal,
+    values = ~Shape__Length,
+    title = "2018/2019 Shape_Length <br>for Renter-occupied Property <br>in East Palo Alto"
+  )
+```
+
+```{r}
+EPA_exemption_average_Zone_Year <-
+  EPA_exemption_average %>% 
+   group_by(New_Zone, Year ) %>% 
+   summarize(
+    Average_Assessed_Value = mean(Average_Assessed_Value),
+    Average_Net_Value = mean(Average_Net_Value),
+    Acres_total = sum(Acres_sum),
+    Taxes_total= sum(Taxes_sum),
+    Total_Charge_total =sum(Total_Charge_sum),
+    Owner_total=sum(Owner_count),
+    count_total=sum(count)
+   )  
+```
+
+```{r}
+EPA_exemption_average_Owner_Year <-
+  EPA_exemption_average %>% 
+   group_by(Housing_Type, Year ) %>% 
+   summarize(
+    Average_Assessed_Value = mean(Average_Assessed_Value),
+    Average_Net_Value = mean(Average_Net_Value),
+    Acres_total = sum(Acres_sum),
+    Taxes_total= sum(Taxes_sum),
+    Total_Charge_total =sum(Total_Charge_sum),
+    Owner_total=sum(Owner_count),
+    count_total=sum(count)
+   )  
+```
+
+```{r}
+EPA_exemption_average_Year <-
+  EPA_exemption_average %>% 
+   group_by(Year) %>% 
+   summarize(
+    Average_Assessed_Value = mean(Average_Assessed_Value),
+    Average_Net_Value = mean(Average_Net_Value),
+    Acres_total = sum(Acres_sum),
+    Taxes_total= sum(Taxes_sum),
+    Total_Charge_total =sum(Total_Charge_sum),
+    Owner_total=sum(Owner_count),
+    count_total=sum(count)
+   )  %>%
+    mutate(
+      Owner_Percentage=Owner_total/ count_total
+    )
+```
+
+Owner_Percentage in 2018/2019 
+```{r}
+EPA_exemption_average_Year_2019 <-
+EPA_exemption_average_Year %>% filter(Year == 2019) 
+
+EPA_exemption_average_Year_2019$Owner_Percentage
+```
+
+```{r}
+# For Owner in 2018/2019--
+# Average_Assessed_Value
+# Average_Net_Value
+# Acres_total
+# Taxes_total
+# Total_Charge_total  
+
+
+EPA_exemption_average_Owner_Year_2019_Owner <-
+EPA_exemption_average_Owner_Year %>%
+      filter(Year == 2019) %>% filter(Housing_Type == "Owner")
+
+EPA_exemption_average_Owner_Year_2019_Owner$Average_Assessed_Value 
+EPA_exemption_average_Owner_Year_2019_Owner$Average_Net_Value
+EPA_exemption_average_Owner_Year_2019_Owner$Acres_total
+EPA_exemption_average_Owner_Year_2019_Owner$Taxes_total
+EPA_exemption_average_Owner_Year_2019_Owner$Total_Charge_total  
+```
+
+```{r}
+# For Renter in 2018/2019--
+# Average_Assessed_Value
+# Average_Net_Value
+# Acres_total
+# Taxes_total
+# Total_Charge_total  
+
+
+EPA_exemption_average_Owner_Year_2019_Renter <-
+EPA_exemption_average_Owner_Year %>%
+      filter(Year == 2019) %>% filter(Housing_Type == "Renter")
+
+EPA_exemption_average_Owner_Year_2019_Renter$Average_Assessed_Value 
+EPA_exemption_average_Owner_Year_2019_Renter$Average_Net_Value
+EPA_exemption_average_Owner_Year_2019_Renter$Acres_total
+EPA_exemption_average_Owner_Year_2019_Renter$Taxes_total
+EPA_exemption_average_Owner_Year_2019_Renter$Total_Charge_total  
+```
+
+```{r}
+EPA_exemption_average_Year_A <-
+   EPA_exemption_average_Year %>% 
+   select (Year, Average_Assessed_Value) %>% 
+   rename(Average_Value=Average_Assessed_Value )%>% 
+   mutate(
+     Value_Type ="Assessed_Value")
+
+EPA_exemption_average_Year_N <-
+    EPA_exemption_average_Year %>% 
+   select (Year, Average_Net_Value) %>% 
+   rename(Average_Value=Average_Net_Value )%>% 
+   mutate(
+     Value_Type ="Net_Value")
+
+EPA_exemption_average_Year_A_N <- rbind(
+  EPA_exemption_average_Year_A, EPA_exemption_average_Year_N)
+```
+
+
+```{r}
+# Assessed Value vs. Net Value
+ggplot(EPA_exemption_average_Year_A_N,
+      aes(
+        x = Year ,
+        y =  Average_Value,
+        color = Value_Type
+      )
+    ) +
+    geom_line(
+      aes(
+        color = Value_Type 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Average Value",
+      title = " East Palo Alto Assessed Value vs. Net Value for Housing",
+      color = "Value_Type"
+    )
+```
+
+```{r}
+# Total Area (Acres) by Zone
+ggplot(EPA_exemption_average_Zone_Year,
+      aes(
+        x = Year ,
+        y = Acres_total,
+        color = New_Zone
+      )
+    ) +
+    geom_line(
+      aes(
+        color = New_Zone 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Total Area (Acres)",
+      title = " East Palo Alto Total Area (Acres) by Zonging",
+      color = "Zoning"
+    )
+```
+
+
+```{r}
+# Total Area (Acres)- Owner-occupied vs. Renter-occupied
+
+ggplot(EPA_exemption_average_Owner_Year,
+      aes(
+        x = Year ,
+        y = Acres_total,
+        color = Housing_Type
+      )
+    ) +
+    geom_line(
+      aes(
+        color = Housing_Type 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Total Area (Acres)",
+      title = " East Palo Alto Total Area (Acres) -- Owner-occupied vs. Renter-occupied",
+      color = "Housing_Type"
+    )
+```
+
+
+```{r}
+# Total Taxes by Zone
+
+ggplot(EPA_exemption_average_Zone_Year,
+      aes(
+        x = Year ,
+        y =  Taxes_total,
+        color = New_Zone
+      )
+    ) +
+    geom_line(
+      aes(
+        color = New_Zone 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Total Taxes",
+      title = " East Palo Alto Total Taxes by Zoning",
+      color = "Zoning"
+    )
+```
+
+
+```{r}
+# Total Taxes- Owner-occupied vs. Renter-occupied
+
+ggplot(EPA_exemption_average_Owner_Year,
+      aes(
+        x = Year ,
+        y = Taxes_total,
+        color = Housing_Type
+      )
+    ) +
+    geom_line(
+      aes(
+        color = Housing_Type 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Total Taxes",
+      title = " East Palo Alto Total Taxes -- Owner-occupied vs. Renter-occupied",
+      color = "Housing_Type"
+    )
+```
+
+
+```{r}
+# Total Charge by Zoning
+
+ggplot(EPA_exemption_average_Zone_Year,
+      aes(
+        x = Year ,
+        y =  Total_Charge_total,
+        color = New_Zone
+      )
+    ) +
+    geom_line(
+      aes(
+        color = New_Zone 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Total Charge",
+      title = " East Palo Alto Total Charge by Zoning",
+      color = "Zoning"
+    )
+```
+
+
+```{r}
+# Total Charge -- Owner-occupied vs. Renter-occupied
+
+ggplot(EPA_exemption_average_Owner_Year,
+      aes(
+        x = Year ,
+        y = Total_Charge_total,
+        color = Housing_Type
+      )
+    ) +
+    geom_line(
+      aes(
+        color = Housing_Type 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Total Charge",
+      title = " East Palo Alto Total Charge -- Owner-occupied vs. Renter-occupied",
+      color = "Housing_Type"
+    )
+```
+
+
+```{r}
+EPA_exemption_average_Owner <-
+  EPA_exemption_average %>%
+  filter (Housing_Type == "Owner") 
+```
+
+```{r}
+EPA_exemption_average_Renter <-
+  EPA_exemption_average %>%
+  filter (Housing_Type == "Renter") 
+```
+
+
+```{r}
+#ggplot(chart, aes(x = Year, y = Average_Assessed_Value)) +
+#    geom_line(aes(color = New_Zone, linetype = New_Zone))
+```
+
+
+```{r}
+ggplot(EPA_exemption_average_Owner,
+      aes(
+        x = Year ,
+        y = Average_Assessed_Value,
+        color = New_Zone
+      )
+    ) +
+    geom_line(
+      aes(
+        color = New_Zone 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Average Assessed Value",
+      title = " East Palo Alto Average Assessed Value for<br> Owner-Occupied Housing",
+      color = "New Zone"
+    )
+```
+
+
+```{r}
+ggplot(EPA_exemption_average_Renter,
+      aes(
+        x = Year ,
+        y = Average_Assessed_Value,
+        color = New_Zone
+      )
+    ) +
+    geom_line(
+      aes(
+        color = New_Zone 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Average Assessed Value",
+      title = " East Palo Alto Average Assessed Value for Renter-Occupied Housing",
+      color = "New Zone"
+    ) 
+```
+
+
+```{r}
+ggplot(EPA_exemption_average_Owner,
+      aes(
+        x = Year ,
+        y = Average_Net_Value,
+        color = New_Zone
+      )
+    ) +
+    geom_line(
+      aes(
+        color = New_Zone 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Average Net Value",
+      title = " East Palo Alto Average Net Value for Owner-Occupied Housing",
+      color = "New Zone"
+    )
+```
+
+
+```{r}
+ggplot(EPA_exemption_average_Renter,
+      aes(
+        x = Year ,
+        y = Average_Net_Value,
+        color = New_Zone
+      )
+    ) +
+    geom_line(
+      aes(
+        color = New_Zone 
+      )
+       +
+    scale_x_discrete(
+      limits = c( 
+               "2016",
+               "2017",
+               "2018",
+               "2019")
+          ),
+    ) +
+      labs(
+      x = "Fiscal Year",
+      y = "Average Net Value",
+      title = " East Palo Alto Average Net Value for Renter-Occupied Housing",
+      color = "New Zone"
+    ) 
+```
+
+PART I:
+1.	Plot 1 and 3 shows that most of the householders in East Palo Alto (EPA) have monthly owner costs less than 20% of their household income. The second highest number of householders are those who have monthly owner costs more than 50% of their household income.
+2.	Plot 2 and 4 shows over 40% of EPA householders have monthly owner costs less than 20% of their household income. Over 20% of householders have monthly owner costs more than 50% of their household income. Among them, there are roughly 5% having household income less than $20,000. Over 20% of householders have household income greater than 150,000 and thus their owner costs are less than 20%.
+3.	Based on Plot 5, for the group with household income greater than 150,000, the monthly owner costs are mostly under 35%, in particular, below 25%. For the group with household income between $100,000~$150,000, owner costs mostly fall between 30%~ 50%, with a portion of people having lower burden percentage under 30%. People with household income between $75,000~$100,000 also suffer from similar burden percentage between 35%~50%.
+4.	Plot 6 confirms that as the income decreases, the burden percentage increases. Especially, if the income falls under $150,000, the burden percentage largely go beyond 30%.
+5.	From owner costs data, there are 1281 households out of 3066 having housing burden greater than 30% (burden threshold). The total burden amount is $11,725,938. The excess amount is $38,724,750. The burdened percentage is 41.8%.
+6.	Given Plot 7 and 8, for both owner-occupied and renter-occupied households, most of them have housing costs $75,000 or more.
+7.	Plot 9 shows that for the renter-occupied group, most households have housing costs between $20,000~$35,000, followed by $35,000~$50,000, and <$20,000. The owner-occupied group tends to have high housing costs beyond $50,000.
+8.	Plot 10 and 11 assessed that there is a high percentage of households having high housing costs beyond $50,000 for both owner-occupied and renter-occupied groups.
+9.	Plot 12 displays that a high percentage of the renter-occupied has housing costs below $50,000.
+10.	Based on the housing burden data, 1281 households out of 3066 have housing burden greater than 30% (burden threshold). The total burden amount is $10,636,071. The excess amount is $221,261,000. The burdened percentage is 41.8%. While for the renter-occupied group, 2583 out of 4466 renter-occupied households have housing burden greater than 30% (burden threshold). The total burden amount is $16,432,143. The excess amount is $145,161,000. The burdened percentage is 57.78%.
+
+PART II:
+1.	Map 1 is the mapping for EPA zoning.
+2.	For map 2, it shows owners with exemption $7000 or $5600 scatter pretty much homogeneously in the EPA. 
+3.	If only R-LD zone is considered, similarly, the owners scatter homogeneously in the EPA.
+4.	Map 4 is showing the areas in acres from 2018/2019 data for owner-occupied property. There are some larger areas in the southern region of the EPA. 
+5.	Map 5 shows the areas in acres from 2018/2019 data for renter-occupied property. There are really large areas in the east region especially, and some in south-west part of the EPA. 
+6.	Map 6 and map 8 present 2018/2019 APN area and Shape area, respectively, for owner-occupied property. Both maps shows similar patterns with some larger areas in the south regions. 
+7.	Map 7 and map 9 present 2018/2019 APN area and Shape area, respectively, for renter-occupied property, which demonstrate really large areas in the east and some in the south-west. 
+8.	Map 10 and 11 give the Shape length for both owner-occupied and renter-occupied properties, which also show pretty much the same patterns as in the APN areas or Shape length maps. 
+9.	In EPA, the owner-occupied property is about 39.4%.
+10.	For owner-occupied properties in 2018/2019, Average Assessed Value = $404,905. Average Net Value = $397,908. Total Acres = 791.6243. Total taxes = $7,692,065. Total charge= $10,720,807.
+11.	For renter-occupied properties in 2018/2019, Average Assessed Value = $3,571,467. Average Net Value = $3,442,250. Total Acres = 1815.003. Total taxes =$26,110,897. Total charge=$ 32,564,796. The renter-occupied property is almost 9 times of the value for the owner-occupied, and 2 times of the area for the owner-occupied. The renter-occupied property receives 2 times more of the total taxes and total charges as compared to the owner-occupied property.
+12.	Plot 1 shows that the assessed value and net value for the properties actually increase with year. Both the assessed value and net value of property become double in 3 years.
+13.	Plot of total areas by zoning shows that R-LD has the largest total areas and, on the contrary, MUC has the smallest.
+14.	Total areas (in acres) for owner-occupied property are much lesser than for the renter-occupied. The areas for owner-occupied property decrease with year, which is opposite to the renter-occupied. 
+15.	Zone PI makes the lowest amount of total taxes, followed by Zone RM. Zone R-LD generates the highest amount of total taxes, followed by Zone C-O, which increases with year. 
+16.	The renter-occupied property contributes the higher total taxes than the owner-occupied and the taxes amount increases rapidly in 2018 and 2019.  
+17.	Zone R-LD generates the highest amount of total charges. Zone RM generates the lowest amount of total charges.
+18.	For the owner-occupied, PR has the lowest assessed value and net value, followed by MUL. While, waterfront office has the highest assessed value and net value, followed by PUD.
+19.	For the renter-occupied, RM has the lowest assessed value and PI has the lowest net value, followed by PR and RM, respectively. While, CO has the highest assessed value and net value, followed by C-G.
+
+Generally speaking, the EPA does have a problem in high property price which may cause people to rent a house instead of buying. Even though less than 40% of people own properties in EPA, the house burden is high even for householders with high income. It seems to me that the OPA is essential to the renters, but the extra costs due to OPA should be also considered for house owners to prevent from their suffering with existing high owner costs. The OPA may affect the total taxes obtained for the government to some degree. To reduce the loss on total taxes and total charges, whether to apply OPA to less affecting zone instead of R-LD may be considered further.
+
+
+
+
