@@ -1,0 +1,1698 @@
+---
+title: "218Y Assignment 4"
+author: "Lillian (Wei) Hung"
+date: "2022/02/16"
+output: html_document
+---
+
+```{r   setup, include=FALSE   }
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+
+•	Study area: 7 census block groups in Redwood City are considered.
+
+•	RCP 4.5 occurrence rates of sea level rise in the Bay Area across years were adopted.
+
+•	The vulnerability for building percent damage is calculated based on the model for the relation between average flood depth and percent damage in Table 1 of “Economic Guidance Memoranda”. The vulnerability for vehicle percent damage is calculated based on the model for the relation between depth above ground and percent damage in Table 3 of “Economic Guidance Memoranda”.
+
+•	Vehicle counts in San Mateo County were collected from EMFAC that includes Redwood City for the years 2020, 2030, 2040, and 2050. Vehicle Categories, LDA (“Passenger Cars”) and LDT1 (“Light-Duty Trucks) were considered to estimate the numbers of vehicles in the period of 2020-2050.
+
+•	EMFAC Vehicle counts were used to estimate of the % increase in vehicles decade by decade and to adjust for the vehicle risk AAL for 2030, 2040, and 2050.
+
+•	To account for the % increase in vehicles decade by decade, the total vehicle risk AAL for 2030, 2040, and 2050 are adjusted based the EMFAC vehicle growth rate.
+
+•	ACS 5-yr 2019 data about vehicle ownership in Redwood City were used for an estimate of the total number of owned vehicles in each census block group of Redwood City. Percentage of vehicle ownership is assumed to remain the same over the next 30 years.
+
+•	To allocate the 2020 vehicle number to each block, the block population percentage in each block group from was calculated first from 2020 Decennial census data and then multiplied by ACS 5-yr vehicle number in block group level. It is assumed that vehicles are distributed evenly across population and population is distributed evenly across buildings in a block.
+
+•	The average depth for each building under 9 hazard scenarios was calculated. It is assumed that vehicles stored in or near those buildings at ground level are subject to the same flood exposure.
+
+•	The buildings are assumed to be raised 2ft from the actual ground level as in the class note. However, the vehicles are assumed to be stored or parked at ground level as the vulnerability percent damage is calculated. 
+
+•	The exposure based on building footprints is assumed not to change over the study period.
+
+
+
+
+
+PART I. Building risk estimation
+
+```{r}
+options(tigris_use_cache = TRUE)
+library(readxl)
+library(tigris)
+library(mapview)
+library(censusapi)
+library(devtools)
+library(ggplot2)
+library(sf)
+library(leaflet)
+library(mapboxapi)
+library(tidyverse)
+
+Sys.setenv(CENSUS_KEY="59ba92e6096aa340bd6be1f3878bbfc2f03843e7")
+```
+
+```{r}
+library(remotes)
+# install_github("yonghah/esri2sf")
+library(esri2sf)
+```
+
+```{r}
+library(jsonlite)
+```
+
+```{r}
+# RW_cbgs_boundary <- 
+#  block_groups("CA", "San Mateo", progress_bar = F) %>% 
+#  select(GEOID) %>% 
+#  filter(GEOID 
+#  %in% c( "060816103032", "060816103034",
+#         "060816103031", "060816103033",
+#         "060816103041", "060816103042",
+#          "060816103043" ) 
+#  )
+
+# saveRDS(RW_cbgs_boundary,"RW_cbgs_boundary.rds")
+```
+
+7 selected census block groups in Redwood City
+
+```{r}
+# RW_cbgs_boundary == Redwood_bgs
+RW_cbgs_boundary <-
+readRDS("RW_cbgs_boundary.rds")
+
+mapview(RW_cbgs_boundary)
+```
+
+```{r}
+# Redwood_bgs <-
+# readRDS("Redwood_bgs.rds")
+```
+
+```{r}
+# ca_blocks <- 
+#  blocks("CA","San Mateo")
+
+# saveRDS(ca_blocks,"ca_blocks.rds")
+```
+
+```{r}
+# RW_blocks <-
+#  ca_blocks %>% 
+#  .[Redwood_boundary, ] %>%
+#   mutate(cbg = substr(GEOID10, 1,12) ) %>% 
+#  filter(cbg %in% 
+#  c( "060816103032", "060816103034",
+#      "060816103031", "060816103033",
+#      "060816103041", "060816103042",
+#      "060816103043")) %>% 
+#  st_transform(4326)  
+```
+
+Redwood City in Block level of 7 selected census block groups 
+
+```{r}
+# saveRDS(RW_blocks,"RW_blocks.rds")
+
+RW_blocks <- readRDS("RW_blocks.rds")
+mapview(RW_blocks)
+```
+
+```{r}
+library(raster)
+library(stars)
+```
+
+```{r}
+# osm_bldg <- st_read("G:/Shared drives/SFBI/Data Library/OSM/gis_osm_buildings_a_free_1.shp")
+
+# Redwood_boundary <- 
+#   places("CA", cb = T, progress_bar = F) %>% 
+#  filter(NAME == "Redwood City") %>% 
+#  st_transform(4326)
+
+# saveRDS(Redwood_boundary,"Redwood_boundary.rds" )
+```
+
+```{r}
+# RW_cbgs_boundary <- Redwood_cbgs_boundary %>% 
+#  st_transform(4326) 
+
+# Redwood_bldg <- osm_bldg[RW_cbgs_boundary, ]
+
+# saveRDS(Redwood_bldg,"Redwood_bldg.rds")
+```
+
+```{r}
+ slr <- 50
+ rp <- 100
+
+ path <- paste0("G:/Shared drives/SFBI/Data Library/OCOF/san_mateo_flooding_slr",str_pad(slr, 3, "left", "0"),"/flooding/v2.1/county_san_mateo_flddepth_slr",str_pad(slr, 3, "left", "0"),"_w",str_pad(rp, 3, "left", "0"),".tif")
+
+ test_flood <- raster(path)
+```
+
+```{r}
+# Redwood_cbgs <- readRDS("Redwood_cbgs.rds" )
+```
+
+```{r}
+# Redwood_cbgs_boundary <-
+#  readRDS("Redwood_cbgs.rds") %>%
+#  filter(GEOID %in% 
+#  c( "060816103032", "060816103034",
+#      "060816103031", "060816103033",
+#      "060816103041", "060816103042",
+#      "060816103043")) 
+
+# saveRDS(Redwood_cbgs_boundary," Redwood_cbgs_boundary.rds")
+```
+
+```{r}
+Redwood_cbgs_boundary <- readRDS(" Redwood_cbgs_boundary.rds")
+```
+
+```{r}
+# test_flood_Redwood <- test_flood %>% 
+#  crop(
+#    Redwood_cbgs_boundary %>% 
+#      st_transform(26910) %>% 
+#      st_bbox()
+#  )
+
+# saveRDS(test_flood_Redwood,"test_flood_Redwood.rds")
+```
+
+```{r}
+test_flood_Redwood <-
+readRDS("test_flood_Redwood.rds")
+```
+
+Max flood of 7 census block groups in Redwood City:
+For the maximum case out of 9 flood scenarios, slr=50, rp=100, the severe flooding areas are scattered in the central part of the region with one most severe place on the south boundary.
+ 
+```{r}
+plot(test_flood_Redwood)
+```
+
+```{r}
+flood_pal <- colorNumeric(
+  palette = "Blues",
+  domain = values(test_flood_Redwood),
+  na.color = "transparent"
+)
+
+leaflet() %>% 
+  addMapboxTiles(
+    style_id = "satellite-streets-v11",
+    username = "mapbox",
+    options = tileOptions(opacity = 0.5)
+  ) %>% 
+  addRasterImage(
+    test_flood_Redwood,
+    colors = flood_pal
+  ) %>% 
+  addLegend(
+    pal = flood_pal,
+    values = values(test_flood_Redwood),
+    title = "Flood depth, cm"
+  )
+```
+
+```{r}
+# for(slr in c("000","025","050")){
+  
+#  for(rp in c("001","020","100")){
+    
+#    print(paste0("SLR",slr,"_RP",rp))
+    
+#    path <- paste0("G:/Shared drives/SFBI/Data Library/OCOF/san_mateo_flooding_slr",slr,"/flooding/v2.1/county_san_mateo_flddepth_slr",slr,"_w",rp,".tif")
+    
+#    flood <- raster(path) %>% 
+#      crop(
+#        Foster_boundary %>% 
+#          st_transform(26910) %>% 
+#          st_bbox()
+#      )
+    
+#    writeRaster(flood, paste0("flood/SLR",slr,"_RP",rp,"_Foster_flood.tif"), overwrite = T)
+    
+#   }
+#  }
+```
+
+```{r}
+# osm_bldg <- st_read("G:/Shared drives/SFBI/Data Library/OSM/gis_osm_buildings_a_free_1.shp")
+
+# Redwood_boundary <- 
+#   places("CA", cb = T, progress_bar = F) %>% 
+#  filter(NAME == "Redwood City") %>% 
+#  st_transform(4326)
+
+# saveRDS(Redwood_boundary,"Redwood_boundary.rds" )
+```
+
+```{r}
+# RW_cbgs_boundary <-  Redwood_cbgs_boundary %>% 
+#  st_transform(4326) 
+
+# Redwood_bldg <- osm_bldg[RW_cbgs_boundary, ]
+
+# saveRDS(Redwood_bldg,"Redwood_bldg.rds")
+```
+
+```{r}
+Redwood_bldg <- readRDS("Redwood_bldg.rds")
+```
+
+```{r}
+flood_max <- 
+  raster("flood/SLR050_RP100_Redwood_flood.tif")
+```
+
+```{r}
+flood_max_extent <- 
+  flood_max %>% 
+  st_as_stars() %>% 
+  mutate(SLR050_RP100_Redwood_flood = ifelse(
+    !is.na(SLR050_RP100_Redwood_flood),
+    1,
+    NA
+  )) %>% 
+  st_as_sf(merge = T) %>% 
+  st_set_crs(26910) %>% 
+  st_make_valid() %>% 
+  st_transform(4326)
+```
+
+```{r}
+Redwood_bldg_flooded_max <-
+  Redwood_bldg %>% 
+  st_transform(4326) %>% 
+  .[flood_max_extent,]
+```
+
+The buildings affected by the max flood are scattered in the center of the region with the flood depth mostly around 300~500 cm.
+
+```{r}
+flood_pal <- colorNumeric(
+  palette = "Blues",
+  domain = values(flood_max),
+  na.color = "transparent"
+)
+
+leaflet() %>% 
+  addMapboxTiles(
+    style_id = "satellite-streets-v11",
+    username = "mapbox",
+    options = tileOptions(opacity = 0.5)
+  ) %>% 
+  addRasterImage(
+    flood_max,
+    colors = flood_pal,
+    opacity = 0.75
+  ) %>% 
+  addPolygons(
+    data = Redwood_bldg_flooded_max,
+    fill = F,
+    color = "red",
+    weight = 0.5
+  ) %>% 
+  addLegend(
+    pal = flood_pal,
+    values = values(flood_max),
+    title = "Flood depth, cm"
+  )
+```
+
+```{r}
+# Redwood_bldg_exposure <- NULL
+
+# for(slr in c("000","025","050")){
+  
+#  for(rp in c("001","020","100")){
+    
+#    print(paste0("SLR",slr,"_RP",rp))
+    
+     
+# flood <- raster( paste0("flood/SLR",slr,"_RP",rp,"_Redwood_flood.tif"))   
+
+#    flood_extent <- 
+#      (flood > -Inf) %>% 
+#      st_as_stars() %>% 
+#      st_as_sf(merge = T) %>% 
+#      st_set_crs(26910) %>% 
+#      st_make_valid() %>% 
+#      st_transform(4326)
+    
+#    Redwood_bldg_flooded <-
+#      Redwood_bldg_flooded_max[flood_extent,] %>%   st_transform(26910)
+    
+#    flood_crop <-
+#      crop(flood, Redwood_bldg_flooded)
+    
+#    flood_crop[is.na(flood_crop)] <- 0
+   
+#    temp <-
+#      extract(
+#        flood_crop,
+#        Redwood_bldg_flooded,
+#        fun = mean
+#      ) %>% 
+#      as.data.frame() %>% 
+#      rename(avg_depth = V1) %>% 
+#      cbind(
+#        Redwood_bldg_flooded %>% 
+#          st_drop_geometry() %>% 
+#          dplyr::select(osm_id)
+#      ) %>% 
+#      mutate(
+#        SLR = slr,
+#        RP = rp
+#      )
+    
+#    Redwood_bldg_exposure <- 
+#      Redwood_bldg_exposure %>% 
+#      rbind(temp)
+    
+#   }
+#  }
+```
+
+```{r}
+#saveRDS(Redwood_bldg_exposure,"Redwood_bldg_exposure.rds")
+```
+
+```{r}
+library(plotly)
+```
+
+```{r}
+vulnerability <- data.frame(
+  depth = c(-2:16),
+  perc_damage = c(
+    0,
+    0.025,
+    0.134,
+    0.233,
+    0.321,
+    0.401,
+    0.471,
+    0.532,
+    0.586,
+    0.632,
+    0.672,
+    0.705,
+    0.732,
+    0.754,
+    0.772,
+    0.785,
+    0.795,
+    0.802,
+    0.807
+  ),
+   SD = c( 
+  0,
+  0.027,
+  0.02,
+  0.016,
+  0.016,
+  0.018,
+  0.019,
+  0.02,
+  0.021,
+  0.022,
+  0.023,
+  0.024,
+  0.027,
+  0.03,
+  0.033,
+  0.037,
+  0.041,
+  0.045,
+  0.049
+ )  
+)
+```
+
+Vulnerability for building:
+The relation between depth and percent damage for building considered is as follows.
+
+```{r}
+vulnerability 
+```
+
+```{r}
+Redwood_bldg_exposure <-
+readRDS("Redwood_bldg_exposure.rds") %>% 
+  mutate(
+    avg_depth = avg_depth*0.0328084 - 2 # cm to ft, subtract first floor elevation
+  )
+```
+
+```{r}
+Redwood_bldg_exposure_mean <-
+Redwood_bldg_exposure  %>%
+  group_by(SLR,RP)  %>% 
+  summarise(avg_depth=mean(avg_depth, na.rm=T) )
+```
+
+```{r}
+avg_depth_0 <- data.frame(
+  SLR = c(0,0,0,25),
+  RP  = c(1,20,100,1),
+  avg_depth = c(0,0,0,0)
+)
+```
+
+```{r}
+Redwood_bldg_exposure_mean_plot <-
+  rbind(Redwood_bldg_exposure_mean, avg_depth_0) 
+```
+
+For annual flood, only when sea level rise reaches 50 cm, it may cause a bit over 1 feet average depth of building flood. 
+For 1 in 20 years, as sea level rise reaches above 25 cm, the average depth of building flood can go beyond 1.5 feet. 
+For 1 in 100 year, the average depth of building flood can go over 2 feet. 
+
+```{r}
+ggplot(Redwood_bldg_exposure_mean_plot, aes(x=SLR, y=avg_depth))+
+  geom_bar(stat='identity', fill="lightsteelblue3")+
+  facet_wrap(~RP)
+```
+
+```{r}
+Redwood_bldg_perc_damage <- 
+  approx(
+    x = vulnerability$depth,
+    y = vulnerability$perc_damage,
+    xout = Redwood_bldg_exposure$avg_depth
+  ) %>% 
+  .[2] %>% 
+  as.data.frame() %>% 
+  rename(perc_damage = y) %>% 
+  cbind(Redwood_bldg_exposure)
+
+saveRDS(Redwood_bldg_perc_damage,"Redwood_bldg_perc_damage.rds")
+```
+
+```{r}
+Redwood_bldg_perc_damage_plot <- 
+  expand.grid(
+    osm_id = unique(Redwood_bldg_perc_damage$osm_id),
+    SLR = unique(Redwood_bldg_perc_damage$SLR),
+    RP = unique(Redwood_bldg_perc_damage$RP)
+  ) %>% 
+  left_join(Redwood_bldg_perc_damage) %>% 
+  mutate(
+    avg_depth = ifelse(
+      is.na(avg_depth),
+      -2,
+      avg_depth
+    ),
+    perc_damage = ifelse(
+      is.na(perc_damage),
+      0,
+      perc_damage
+    )
+  )
+```
+
+```{r}
+Redwood_plot <- 
+  plot_ly() %>% 
+  add_trace(
+    data = 
+      Redwood_bldg_perc_damage_plot %>% 
+        filter(RP == "100") %>% 
+        mutate(SLR = SLR %>% as.numeric()),
+    x = ~avg_depth,
+    y = ~perc_damage,
+    frame = ~SLR,
+    type = 'scatter',
+    mode = 'markers',
+    marker = list(
+      color = 'rgba(17, 157, 255, 0.01)',
+      size = 15
+    ),
+    showlegend = F
+  ) %>% 
+  add_trace(
+    data = vulnerability,
+    x = ~depth,
+    y = ~perc_damage,
+    type = 'scatter',
+    mode = 'markers',
+    marker = list(
+      color = 'rgb(0,0,0)'
+    ),
+    showlegend = F
+  ) %>% 
+  layout(
+    xaxis = list(
+      title = "Average Flood Depth",
+      zeroline = FALSE
+    ),
+    yaxis = list(
+      title = "Percent Damage"
+    ),
+    title = "Redwood City building damage during<br>100-year storm, by base sea level rise"
+  ) %>% 
+  config(displayModeBar = F)
+```
+
+The Redwood city building damage for 1 in 100 year flood follows close to the relation between average flood depth and percent damage from the model in Table 1 of “Economic Guidance Memoranda”.
+
+```{r}
+Redwood_plot
+```
+
+```{r}
+Redwood_bldg_perc_damage_mean <-
+Redwood_bldg_perc_damage  %>%
+  group_by(SLR,RP)  %>% 
+  summarise(perc_damage=mean(perc_damage, na.rm=T) )
+```
+
+```{r}
+perc_damage_0 <- data.frame(
+  SLR = c(0,0,0,25),
+  RP  = c(1,20,100,1),
+  perc_damage = c(0,0,0,0)
+)
+```
+
+```{r}
+Redwood_bldg_perc_damage_mean_plot_0 <-
+  rbind(Redwood_bldg_perc_damage_mean, perc_damage_0) 
+```
+
+For annual flood, only when SLR reaches to 50 cm, it may cause some degree of building damage with damage percentage roughly 0.25. 
+For 1 in 20 years, as sea level rise reaches above 25 cm, the building damage percentage due to flood may become close to 0.3 or over. 
+For 1 in 100 years, the vehicle damage percentage may go beyond 0.3. 
+
+```{r}
+ggplot(Redwood_bldg_perc_damage_mean_plot_0, aes(x=SLR, y=perc_damage))+
+  geom_bar(stat='identity', fill="lightsteelblue3")+
+  facet_wrap(~RP)
+```
+
+```{r}
+projection <- "+proj=utm +zone=10 +ellps=GRS80 +datum=NAD83 +units=ft +no_defs"
+
+Redwood_bldg_flooded_max <- 
+  Redwood_bldg_flooded_max %>% 
+  st_transform(projection) %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  )
+```
+
+```{r}
+Redwood_bldg_damage <-
+  Redwood_bldg_perc_damage %>% 
+  left_join(
+    Redwood_bldg_flooded_max %>%
+      st_drop_geometry() %>% 
+      select(osm_id, area)
+  ) %>% 
+  mutate(
+    damage = area * 200 * perc_damage
+  ) %>% 
+  select(osm_id, SLR, RP, damage)
+
+```
+
+```{r}
+Redwood_bldg_aal_by_slr <-
+  Redwood_bldg_damage %>% 
+  pivot_wider(
+    names_from = RP,
+    values_from = damage
+  ) %>% 
+  rename(`001`=`1`,`020`=`20`) %>%
+  replace(is.na(.), 0) %>% 
+  mutate(
+    damage = 
+      0.95*(`001`+`020`)/2 + 
+      0.04*(`020`+`100`)/2 + 
+      0.01*(`100`)
+  ) %>% 
+  select(osm_id, SLR, damage)
+```
+
+```{r}
+rcp45 <- read_csv("https://raw.githubusercontent.com/stanfordfuturebay/stanfordfuturebay.github.io/master/advanced/rcp45_sanfrancisco.csv")
+
+rcp45 %>% mutate(SLR = as.numeric(SLR))
+
+```
+
+```{r}
+Redwood_bldg_aal_by_year <- 
+  Redwood_bldg_aal_by_slr %>%
+  mutate(SLR= as.numeric(SLR)) %>%
+  left_join(rcp45) %>% mutate(SLR= as.character(SLR)) %>%
+      mutate(
+        SLR = str_pad(SLR, 3 , "left", "0")
+   )  %>% select(- (`2060`:`2100`)) %>%
+  pivot_longer(
+    `2020`:`2050`,
+    names_to = "year",
+    values_to = "occurrence"
+  ) %>% 
+  pivot_longer(
+    c(damage,occurrence),
+    names_to = "key",
+    values_to = "value"
+  ) %>% 
+  pivot_wider(
+    names_from = c("key","SLR"),
+    values_from = value
+  ) %>% 
+  replace(is.na(.), 0) %>%
+  mutate(occurrence_000
+         = ifelse(year == "2020", 0.942,
+           ifelse(year == "2030", 0.923,
+           ifelse(year == "2040", 0.793,  0.508 ))),
+         damage_000 = 0
+  )  %>%
+    mutate(damage = 
+      occurrence_000*(damage_000+damage_025)/2 + 
+      occurrence_025*(damage_025+damage_050)/2 + 
+      occurrence_050*(damage_050)
+  ) %>% 
+  select(osm_id, year, damage)
+```
+
+```{r}
+Redwood_bldg_aal_by_year_map <-
+  Redwood_bldg_aal_by_year %>% mutate(year=as.numeric(year)) %>%
+  pivot_wider(
+    names_from = year,
+    values_from = damage
+  ) %>% 
+  mutate(
+    change = `2050`-`2020`
+  ) %>% 
+  left_join(
+    Redwood_bldg_flooded_max %>%
+      select(osm_id)
+  ) %>% 
+  st_as_sf() %>% 
+  st_transform(4326)
+
+saveRDS(Redwood_bldg_aal_by_year_map,"Redwood_bldg_aal_by_year_map.rds")
+```
+
+```{r}
+aal_pal <- colorNumeric(
+  palette = "Reds",
+  domain = c(0,Redwood_bldg_aal_by_year_map$`2050`)
+)
+
+Redwood_bldg_aal_by_year_map %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~aal_pal(`2020`),
+    color = "gray",
+    fillOpacity = 1,
+    opacity = 1,
+    weight = 0.25,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2
+    ),
+    label = ~paste0("$",prettyNum(signif(`2020`,2),",")," average annualized loss in 2020"),
+    group = "2020"
+  ) %>% 
+  addPolygons(
+    fillColor = ~aal_pal(`2050`),
+    color = "gray",
+    fillOpacity = 1,
+    opacity = 1,
+    weight = 0.25,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2
+    ),
+    label = ~paste0("$",prettyNum(signif(`2050`,2),",")," average annualized loss in 2050"),
+    group = "2050"
+  ) %>% 
+  addPolygons(
+    fillColor = ~aal_pal(change),
+    color = "gray",
+    fillOpacity = 1,
+    opacity = 1,
+    weight = 0.25,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2
+    ),
+    label = ~paste0("$",prettyNum(signif(change,2),",")," change in average annualized loss from 2020 to 2050"),
+    group = "Change"
+  ) %>% 
+  addLegend(
+    pal = aal_pal,
+    values = ~`2050`,
+    title = "AAL"
+  ) %>% 
+  addLayersControl(
+    baseGroups = c("2020","2050","Change"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  showGroup("2050")
+```
+
+```{r}
+Redwood_bg_aal <-
+  Redwood_bldg_aal_by_year %>% 
+  pivot_wider(
+    names_from = year,
+    values_from = damage
+  ) %>% 
+  mutate(
+    aal = (`2020`*5 + `2030`*10 + `2040`*10 + `2050`*5)/30
+  ) %>% 
+  left_join(
+    Redwood_bldg_flooded_max %>%
+      select(osm_id) %>% 
+      st_centroid()
+  ) %>% 
+  st_as_sf() %>% 
+  st_transform(4269) %>% 
+  st_join(RW_cbgs_boundary) %>% 
+  st_set_geometry(NULL) %>% 
+  group_by(GEOID) %>% 
+  summarize(
+    aal = sum(aal),
+    count = n()
+  ) %>% 
+  left_join(RW_cbgs_boundary)  %>% 
+  st_as_sf()
+```
+
+```{r}
+saveRDS(Redwood_bg_aal,"Redwood_bg_aal.rds")
+```
+
+```{r}
+aal_pal <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_bg_aal$aal
+)
+
+Redwood_bg_aal %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~aal_pal(aal),
+    color = "gray",
+    fillOpacity = 0.5,
+    opacity = 1,
+    weight = 0.25,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2
+    ),
+    label = ~paste0("$",prettyNum(signif(aal,2),",")," average annualized loss across ", count, " buildings, 2020-2050")
+  ) %>% 
+  addLegend(
+    pal = aal_pal,
+    values = ~aal,
+    title = "AAL, 2020-2050"
+  )
+```
+
+```{r}
+Redwood_bg_aal <-
+Redwood_bg_aal %>%
+  filter(!is.na(GEOID))
+```
+
+```{r}
+Redwood_bg_aal
+```
+
+The estimated total AAL for building damage is as follows:
+```{r}
+paste0("$", sum(Redwood_bg_aal$aal))
+```
+
+```{r}
+sum(Redwood_bg_aal$count)
+```
+
+
+The estimated AAL per building is as follows:
+```{r}
+aal_per_building = sum(Redwood_bg_aal$aal)/sum(Redwood_bg_aal$count) 
+
+
+paste0("$", sum(aal_per_building))
+```
+
+PART II. Vehicle risk estimation
+
+```{r}
+emfac <- 
+  read_csv("EMFAC-SanMateo2020-2050.csv", skip = 8) %>% 
+  rename(Category = `Vehicle Category`,
+         Year = `Calendar Year`,
+         Total_VMT = `Total VMT`)
+	
+emfac_vehicle <- 
+  emfac %>% 
+  filter(Category == "LDA" | Category == "LDT1" ) %>%
+  group_by(Year)  %>% 
+  summarise_at(vars(Population),sum, na.rm=T)
+
+saveRDS(emfac_vehicle,"emfac_vehicle.rds")
+```
+
+```{r}
+# sum(emfac_vehicle$Population)
+```
+
+```{r}
+# emfac_vehicle
+```
+
+```{r}
+smc_vehicle_2019_percent <-
+  readRDS("smc_vehicle_2019_percent.rds")
+```
+
+```{r}
+# Redwood_decpl_pop_race_2020_simple <-
+# readRDS("Redwood_decpl_pop_race_2020_simple.rds")
+
+# Redwood_decpl_pop_2020 <-
+# Redwood_decpl_pop_race_2020_simple %>%
+#  rename(pop2020=P1_001N) %>%
+#  mutate(
+#    cbg = block %>% substr(1,12)
+#  ) %>% 
+#  select(cbg,block,pop2020)  %>%
+#  filter(cbg %in% c("060816103032","060816103034",
+#                    "060816103031","060816103033",
+#                    "060816103041","060816103042",
+#                    "060816103043" ) 
+#  )
+
+# saveRDS(Redwood_decpl_pop_2020,"Redwood_decpl_pop_2020,rds")
+```
+
+```{r}
+Redwood_decpl_pop_2020 <- 
+  readRDS("Redwood_decpl_pop_2020.rds")
+```
+
+```{r}
+Redwood_decpl_pop_2020_sum <-
+Redwood_decpl_pop_2020 %>%
+  group_by(cbg) %>%
+    summarize (cbg_pop=sum(pop2020))
+
+Redwood_decpl_pop_2020_percent <-
+Redwood_decpl_pop_2020%>%
+  left_join(Redwood_decpl_pop_2020_sum ) %>% 
+  mutate(pop2020_percent=pop2020/cbg_pop) %>%
+  select(-cbg)
+  
+saveRDS(Redwood_decpl_pop_2020_percent, "Redwood_decpl_pop_2020_percent.rds")
+```
+
+```{r}
+# acs_vars_2019_5yr <-
+#  listCensusMetadata(
+#    name = "2019/acs/acs5",
+#    type = "variables"
+#  )
+# saveRDS(acs_vars_2019_5yr,"acs_vars_2019_5yr.rds")
+
+acs_vars_2019_5yr <-
+  readRDS("acs_vars_2019_5yr.rds")
+```
+
+```{r}
+# smc_vehicle_cbgs_2019_B25044 <-
+#  getCensus(
+#    name = "acs/acs5",
+#    vintage = 2019,
+#    region = "block group:*", 
+#    regionin = "state:06+county:081",  
+#    vars = "group(B25044)"
+#  ) %>%
+#  mutate(cbg=paste0(state,county,tract,block_group) %>% 
+#  select(!c(state,county,tract,block_group,NAME,GEO_ID) & !ends_with(c("EA","MA","M"))) %>%
+#  pivot_longer(
+#    ends_with("E"),
+#    names_to = "variable",
+#    values_to = "estimate"
+#  ) %>%
+#  left_join(
+#    acs_vars_2019_5yr %>% 
+#      select(name, label), 
+#    by = c("variable"= "name")
+#  ) %>% 
+#  select(-variable) %>% 
+#  separate(
+#    label,
+#    into = c(NA,NA,"tenure","vehicle"),
+#    sep = "!!"
+#  ) %>% 
+#  filter(!is.na(vehicle)) %>% 
+#  filter(cbg %in% Redwood_bgs$GEOID)
+
+# saveRDS(Redwood_vehicle_cbgs_2019_B25044,"Redwood_vehicle_cbgs_2019_B25044.rds")
+```
+
+```{r}
+Redwood_vehicle_cbgs_2019_B25044 <-
+readRDS("Redwood_vehicle_cbgs_2019_B25044.rds")
+```
+
+```{r}
+Redwood_vehicle_N<-
+Redwood_vehicle_cbgs_2019_B25044 %>%
+  mutate(
+    vehicle_num = substr(vehicle, 1,1) %>% as.numeric(),
+    vehicle_count = estimate * vehicle_num
+  ) %>% filter(!is.na(vehicle)) %>%
+  mutate(vehicle_N = ifelse(
+    vehicle=="No vehicle available", 0, vehicle_num)) %>%
+group_by(vehicle_N) %>% 
+  summarize(estimate_sum = sum(estimate))
+```
+
+```{r}
+Redwood_vehicle_percent <-
+Redwood_vehicle_N %>% 
+  mutate(percent= estimate_sum /sum(Redwood_vehicle_N$estimate_sum))
+
+```
+
+```{r}
+Redwood_vehicle<-
+Redwood_vehicle_cbgs_2019_B25044 %>%
+  mutate(
+    vehicle_num = substr(vehicle, 1,1) %>% as.numeric(),
+    vehicle_count = estimate * vehicle_num
+  ) %>%
+ filter(!is.na(vehicle_count)) %>%
+ group_by(cbg) %>% 
+ summarize(vehicle_count = sum(vehicle_count))
+
+saveRDS(Redwood_vehicle, "Redwood_vehicle.rds")
+```
+
+```{r}
+Redwood_block_veh_per_bldg <-
+  Redwood_bldg %>% 
+#  filter(type=="residential") %>% 
+  # unique ID for each building
+  st_centroid() %>% 
+  st_join(RW_blocks %>% select(GEOID10)) %>%
+  mutate(
+    cbg = substr(GEOID10, 1,12),
+    block = substr(GEOID10, 13,15)
+  ) %>%
+  st_drop_geometry() %>% 
+  group_by(GEOID10) %>% 
+  summarize(bldg_count = n()) %>% 
+  mutate(
+    cbg = substr(GEOID10, 1,12) ) %>%
+  left_join(Redwood_vehicle) %>%
+  left_join(Redwood_decpl_pop_2020_percent, by=c("GEOID10" = "block") ) %>%
+  mutate(
+    vehicle_block = vehicle_count*pop2020_percent,
+    veh_per_person = vehicle_block/pop2020,
+    ppl_per_bldg = pop2020/bldg_count,
+    veh_per_bldg =  veh_per_person* ppl_per_bldg
+  )
+
+saveRDS(Redwood_block_veh_per_bldg,"Redwood_block_veh_per_bldg.rds")
+```
+
+```{r}
+Redwood_veh_per_bldg <- Redwood_bldg %>% 
+  filter(!is.na(osm_id)) %>% 
+  select(osm_id) %>% 
+  st_centroid() %>% 
+  st_join(RW_blocks %>% select(GEOID10)) %>%
+  left_join(Redwood_block_veh_per_bldg %>% select(GEOID10,veh_per_bldg))
+
+saveRDS(Redwood_veh_per_bldg,"Redwood_veh_per_bldg.rds")
+```
+
+```{r}
+Redwood_veh_per_bldg <- Redwood_bldg %>% 
+  filter(!is.na(osm_id)) %>% 
+  select(osm_id) %>% 
+  st_centroid() %>% 
+  st_join(RW_blocks %>% select(GEOID10)) %>%
+  left_join(Redwood_block_veh_per_bldg %>% select(GEOID10,veh_per_bldg))
+
+saveRDS(Redwood_veh_per_bldg,"Redwood_veh_per_bldg.rds")
+```
+
+The percent damage to Vehicle is based on the damage function from Table 3 of Economic Guidance Memorandum, 09-04, Generic Depth-Damage Relationships for Vehicles in 2009. All vehicles are assumed to be sedans.
+
+```{r}
+vulnerability_veh <- data.frame(
+  depth = c(0, 0.5, 1:10),
+  perc_damage = c(
+    0,
+    0.076,
+    0.28,
+    0.462,
+    0.622,
+    0.76,
+    0.876,
+    0.97,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ),
+  SD = c(
+    0.01,
+    0.0242,
+    0.0184,
+    0.0151,
+    0.0145,
+    0.0157,
+    0.0174,
+    0.0192,
+    0.0206,
+    0.0206,
+    0.0206,
+    0.0206
+  )
+)
+```
+
+```{r}
+vulnerability_veh
+```
+
+It is assumed that the vehicles are stored in the garage or parked at the ground level. Therefore, the flood average depth calculation was not subtracted by 2 feet for vehicle exposure due to flood.
+
+```{r}
+Redwood_veh_exposure <-
+Redwood_bldg_exposure %>% 
+  mutate(
+    avg_depth = avg_depth*0.0328084  # cm to ft
+  )
+```
+
+```{r}
+Redwood_veh_exposure_mean <-
+Redwood_veh_exposure  %>%
+  group_by(SLR,RP)  %>% 
+  summarise(avg_depth=mean(avg_depth, na.rm=T) )
+```
+
+```{r}
+avg_depth_0 <- data.frame(
+  SLR = c(0,0,0,25),
+  RP  = c(1,20,100,1),
+  avg_depth = c(0,0,0,0)
+)
+```
+
+```{r}
+Redwood_veh_exposure_mean_plot <-
+  rbind(Redwood_veh_exposure_mean, avg_depth_0) 
+```
+
+For annual flood, only when sea level rise reaches 50 cm, it may cause average depth of flood less than 0.05 feet. As sea level rise reaches above 25 cm, the average depth of flood can go beyond 0.05 feet in every 20 year of frequency. The average depth of flood can go close to or over 0.75 feet for every 100 years.
+
+```{r}
+ggplot(Redwood_veh_exposure_mean_plot, aes(x=SLR, y=avg_depth))+
+  geom_bar(stat='identity', fill="lightsteelblue3")+
+  facet_wrap(~RP)
+```
+
+```{r}
+Redwood_veh_perc_damage <- 
+  approx(
+    x = vulnerability_veh$depth,
+    y = vulnerability_veh$perc_damage,
+    xout = Redwood_veh_exposure$avg_depth
+  ) %>% 
+  .[2] %>% 
+  as.data.frame() %>% 
+  rename(perc_damage = y) %>% 
+  cbind(Redwood_bldg_exposure)
+
+saveRDS(Redwood_veh_perc_damage,"Redwood_veh_perc_damage.rds")
+```
+
+```{r}
+Redwood_veh_perc_damage_mean <-
+Redwood_veh_perc_damage  %>%
+  group_by(SLR,RP)  %>% 
+  summarise(perc_damage=mean(perc_damage, na.rm=T) )
+```
+
+```{r}
+perc_damage_0 <- data.frame(
+  SLR = c(0,0,0,25),
+  RP  = c(1,20,100,1),
+  perc_damage = c(0,0,0,0)
+)
+```
+
+```{r}
+Redwood_veh_perc_damage_mean_plot_0 <-
+  rbind(Redwood_veh_perc_damage_mean, perc_damage_0) 
+```
+
+For annual flood, only when sea level rise reaches 50, the average percentage of vehicle damage is a bit over 0.005. As sea level rise reaches above 25, the vehicle damage percentage due to flood may go over 0.075 level for every 20 years. The vehicle damage percentage may go over 0.1 for every 100 years.
+
+```{r}
+ggplot(Redwood_veh_perc_damage_mean_plot_0, aes(x=SLR, y=perc_damage))+
+  geom_bar(stat='identity', fill="lightsteelblue3")+
+  facet_wrap(~RP)
+```
+
+```{r}
+Redwood_veh_perc_damage_plot <- 
+  expand.grid(
+    osm_id = unique(Redwood_veh_perc_damage$osm_id),
+    SLR = unique(Redwood_veh_perc_damage$SLR),
+    RP = unique(Redwood_veh_perc_damage$RP)
+  ) %>% 
+  left_join(Redwood_veh_perc_damage) %>% 
+  mutate(
+    avg_depth = ifelse(
+      is.na(avg_depth),
+      0,
+      avg_depth
+    ),
+    perc_damage = ifelse(
+      is.na(perc_damage),
+      0,
+      perc_damage
+    )
+  )
+```
+
+```{r}
+Redwood_veh_plot <- 
+  plot_ly() %>% 
+  add_trace(
+    data = 
+      Redwood_veh_perc_damage_plot %>% 
+        filter(RP == "100") %>% 
+        mutate(SLR = SLR %>% as.numeric()),
+    x = ~avg_depth,
+    y = ~perc_damage,
+    frame = ~SLR,
+    type = 'scatter',
+    mode = 'markers',
+    marker = list(
+      color = 'rgba(17, 157, 255, 0.01)',
+      size = 15
+    ),
+    showlegend = F
+  ) %>% 
+  add_trace(
+    data = vulnerability_veh,
+    x = ~depth,
+    y = ~perc_damage,
+    type = 'scatter',
+    mode = 'markers',
+    marker = list(
+      color = 'rgb(0,0,0)'
+    ),
+    showlegend = F
+  ) %>% 
+  layout(
+    xaxis = list(
+      title = "Average Flood Depth",
+      zeroline = FALSE
+    ),
+    yaxis = list(
+      title = "Percent Damage"
+    ),
+    title = "Redwood City vehicle damage during<br>100-year storm, by base sea level rise"
+  ) %>% 
+  config(displayModeBar = F)
+```
+
+The trend between average flood depth and percent damage to vehicle is a pretty horizontal line which indicates really mild relation between average flood depth with percent damage to vehicle in Redwood City.
+
+```{r}
+Redwood_veh_plot
+```
+
+```{r}
+projection <- "+proj=utm +zone=10 +ellps=GRS80 +datum=NAD83 +units=ft +no_defs"
+
+Redwood_bldg_flooded_max <- 
+  readRDS("Redwood_bldg_flooded_max.rds") %>% 
+  st_transform(projection) %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  )
+
+Redwood_veh_perc_damage <- readRDS("Redwood_veh_perc_damage.rds")
+```
+
+```{r}
+Redwood_veh_per_bldg <-
+readRDS("Redwood_veh_per_bldg.rds")
+```
+
+```{r}
+Redwood_veh_damage <-
+  Redwood_veh_perc_damage %>% 
+  left_join(
+    Redwood_veh_per_bldg %>%
+      st_drop_geometry() %>% 
+      select(osm_id, veh_per_bldg)
+  ) %>% 
+  mutate(
+    damage = veh_per_bldg * 5500 * perc_damage
+  ) %>% 
+  select(osm_id, SLR, RP, damage)
+
+```
+
+```{r}
+Redwood_veh_aal_by_slr <-
+  Redwood_veh_damage %>% 
+  pivot_wider(
+    names_from = RP,
+    values_from = damage
+  ) %>% 
+  rename(`001`=`1`,`020`=`20`) %>%
+  replace(is.na(.), 0) %>% 
+  mutate(
+    damage = 
+      0.95*(`001`+`020`)/2 + 
+      0.04*(`020`+`100`)/2 + 
+      0.01*(`100`)
+  ) %>% 
+  select(osm_id, SLR, damage)
+```
+
+```{r}
+rcp45 <- read_csv("https://raw.githubusercontent.com/stanfordfuturebay/stanfordfuturebay.github.io/master/advanced/rcp45_sanfrancisco.csv")
+
+# rcp45 %>% mutate(SLR = as.numeric(SLR))
+
+```
+
+```{r}
+Redwood_veh_aal_by_year <- 
+  Redwood_veh_aal_by_slr %>%
+  mutate(SLR= as.numeric(SLR)) %>%
+  left_join(rcp45) %>% mutate(SLR= as.character(SLR)) %>%
+      mutate(
+        SLR = str_pad(SLR, 3 , "left", "0")
+   )  %>% select(- (`2060`:`2100`)) %>%
+  pivot_longer(
+    `2020`:`2050`,
+    names_to = "year",
+    values_to = "occurrence"
+  ) %>% 
+  pivot_longer(
+    c(damage,occurrence),
+    names_to = "key",
+    values_to = "value"
+  ) %>% 
+  pivot_wider(
+    names_from = c("key","SLR"),
+    values_from = value
+  ) %>% 
+  replace(is.na(.), 0) %>%
+  mutate(occurrence_000
+         = ifelse(year == "2020", 0.942,
+           ifelse(year == "2030", 0.923,
+           ifelse(year == "2040", 0.793,  0.508 ))),
+         damage_000 = 0
+  )  %>%
+    mutate(
+    damage = 
+      occurrence_000*(damage_000+damage_025)/2 + 
+      occurrence_025*(damage_025+damage_050)/2 + 
+      occurrence_050*(damage_050)
+  ) %>% 
+  select(osm_id, year, damage)
+```
+
+```{r}
+Redwood_veh_aal_by_year_map <-
+  Redwood_veh_aal_by_year %>% mutate(year=as.numeric(year)) %>%
+  pivot_wider(
+    names_from = year,
+    values_from = damage
+  ) %>% 
+  mutate(
+    change = `2050`-`2020`
+  ) %>% 
+  left_join(
+    Redwood_bldg_flooded_max  %>%
+      select(osm_id)
+  ) %>% 
+  st_as_sf() %>% 
+  st_transform(4326)
+
+saveRDS(Redwood_veh_aal_by_year_map,"Redwood_veh_aal_by_year_map.rds")
+```
+
+```{r}
+aal_pal <- colorNumeric(
+  palette = "Reds",
+  domain = c(0,Redwood_veh_aal_by_year_map$`2050`)
+)
+
+Redwood_veh_aal_by_year_map %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~aal_pal(`2020`),
+    color = "gray",
+    fillOpacity = 1,
+    opacity = 1,
+    weight = 0.25,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2
+    ),
+    label = ~paste0("$",prettyNum(signif(`2020`,2),",")," average annualized loss in 2020"),
+    group = "2020"
+  ) %>% 
+  addPolygons(
+    fillColor = ~aal_pal(`2050`),
+    color = "gray",
+    fillOpacity = 1,
+    opacity = 1,
+    weight = 0.25,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2
+    ),
+    label = ~paste0("$",prettyNum(signif(`2050`,2),",")," average annualized loss in 2050"),
+    group = "2050"
+  ) %>% 
+  addPolygons(
+    fillColor = ~aal_pal(change),
+    color = "gray",
+    fillOpacity = 1,
+    opacity = 1,
+    weight = 0.25,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2
+    ),
+    label = ~paste0("$",prettyNum(signif(change,2),",")," change in average annualized loss from 2020 to 2050"),
+    group = "Change"
+  ) %>% 
+  addLegend(
+    pal = aal_pal,
+    values = ~`2050`,
+    title = "AAL"
+  ) %>% 
+  addLayersControl(
+    baseGroups = c("2020","2050","Change"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  showGroup("2050")
+```
+
+EMFAC growth rate 2030-2050 are as follows:
+```{r}
+emfac_vehicle_2020 <-
+  emfac_vehicle %>% 
+  filter(Year == 2020)  
+
+emfac_vehicle_2030 <-
+emfac_vehicle %>%
+   filter(Year == 2030) %>%
+  mutate(Growth=Population/emfac_vehicle_2020$Population)
+
+emfac_vehicle_2030$Growth
+
+emfac_vehicle_2040 <-
+emfac_vehicle %>%
+   filter(Year == 2040) %>%
+  mutate(Growth=Population/emfac_vehicle_2020$Population)
+ 
+emfac_vehicle_2040$Growth
+ 
+emfac_vehicle_2050 <-
+emfac_vehicle %>%
+   filter(Year == 2050) %>%
+  mutate(Growth=Population/emfac_vehicle_2020$Population)
+ 
+emfac_vehicle_2050$Growth
+```
+
+The total AAL across years (2020~2050) was estimated through the EMFAC vehicle growth rates adjustment by multiplying the 2030, 2040, 2050 data by growth rate estimated from EMFAC 2030-2050.
+
+```{r}
+Redwood_bg_vel_aal <-
+  Redwood_veh_aal_by_year %>% 
+  pivot_wider(
+    names_from = year,
+    values_from = damage
+  ) %>% 
+  mutate(
+    aal_2030 = `2030`* emfac_vehicle_2030$Growth,
+    aal_2040 = `2040`* emfac_vehicle_2040$Growth,  
+    aal_2050 = `2050`* emfac_vehicle_2050$Growth
+  ) %>% 
+  mutate(
+    aal = (`2020`*5  +  aal_2030*10  + 
+           aal_2040 * 10 + aal_2050*5 )/30
+  ) %>% 
+  left_join(
+    Redwood_bldg_flooded_max %>%
+      select(osm_id) %>% 
+      st_centroid()
+  ) %>% 
+  st_as_sf() %>% 
+  st_transform(4269) %>% 
+  st_join(RW_cbgs_boundary) %>% 
+  st_set_geometry(NULL) %>% 
+  group_by(GEOID) %>% 
+  summarize(
+    aal = sum(aal),
+    count = n()
+  ) %>% 
+  left_join(RW_cbgs_boundary)  %>% 
+  st_as_sf()
+```
+
+```{r}
+saveRDS(Redwood_bg_vel_aal,"Redwood_bg_vel_aal.rds")
+```
+
+The middle part in Redwood City region will suffer from the highest vehicle damage, followed by the mid-southern and northern parts.
+
+```{r}
+aal_pal <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_bg_vel_aal$aal
+)
+
+Redwood_bg_vel_aal %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~aal_pal(aal),
+    color = "gray",
+    fillOpacity = 0.5,
+    opacity = 1,
+    weight = 0.25,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2
+    ),
+    label = ~paste0("$",prettyNum(signif(aal,2),",")," average annualized loss across ", count, " buildings, 2020-2050")
+  ) %>% 
+  addLegend(
+    pal = aal_pal,
+    values = ~aal,
+    title = "AAL, 2020-2050"
+  )
+```
+
+```{r}
+Redwood_bg_vel_aal <-
+Redwood_bg_vel_aal %>%
+  filter(!is.na(GEOID))
+```
+
+```{r}
+Redwood_bg_vel_aal
+```
+
+The total AAL from vehicle damage after vehicle growth rate adjustment is estimated as follows:
+
+```{r}
+paste0("$",sum(Redwood_bg_vel_aal$aal))
+```
+
+```{r}
+aal_vehicle_per_building = sum(Redwood_bg_vel_aal$aal)/sum(Redwood_bg_vel_aal$count)
+```
+
+The AAL per building for vehicle damage after vehicle growth rate adjustment is estimated as follows:
+
+```{r}
+paste0("$", aal_vehicle_per_building)
+```
+
+
+The vehicle numbers of 7 block groups in Redwood City by number of vehicle ownership are as follows
+```{r}
+Redwood_vehicle_percent   
+```
+
+
+Monte Carlo simulation for vehicle damage 
+
+```{r}
+vulnerability_veh_montecarlo <-
+  map2(
+    vulnerability_veh$depth,
+    vulnerability_veh$SD,
+    function(x,y) rnorm(10000, x, y)
+  )
+```
+
+```{r}
+vulnerability_veh_montecarlo <-
+  vulnerability_veh_montecarlo %>%
+  transpose()
+```
+
+```{r}
+total <- sum(vulnerability_veh$depth)
+
+montecarlo_result_vehicle <-
+  vulnerability_veh_montecarlo %>% 
+  map(function(depth){
+    
+    depth <- depth %>% unlist()
+    
+    row <- 1 
+    cumulative <- depth[row]
+    proportion <- cumulative/total
+      
+    while (proportion < 0.5) {
+      cumulative_lag <- cumulative
+      row <- row + 1
+      cumulative <- cumulative + depth[row]
+      proportion <- cumulative/total
+    }
+
+depth_tiers <- 
+  data.frame(
+    lower_end = c(NA,1,2,3,4,5,6,7,8,9),
+    width =     c(NA,1,1,1,1,1,1,1,1,1)
+  )
+
+depth_tiers
+
+median <- 
+      depth_tiers$lower_end[row] + 
+      (total/2 - cumulative_lag) /
+      depth[row] *
+      depth_tiers$width[row]
+    
+  }) %>% 
+  unlist()
+
+hist(montecarlo_result_vehicle)
+```
+
+The mean of vehicle damage from monte carlo simulation is as follows.
+
+```{r}
+mean(montecarlo_result_vehicle)
+```
+
+The margin of error of vehicle damage from monte carlo simulation is as follows.
+
+```{r}
+sd(montecarlo_result_vehicle)*1.645
+```
+
+```{r}
+upper <- mean(montecarlo_result_vehicle) + 1.645*sd(montecarlo_result_vehicle)
+lower <- mean(montecarlo_result_vehicle) - 1.645*sd(montecarlo_result_vehicle)
+
+ggplot() + 
+  geom_histogram(
+    aes(montecarlo_result_vehicle)
+  ) + 
+  geom_vline(
+    aes(
+      xintercept = mean(montecarlo_result_vehicle)
+    ), 
+    colour = "red"
+  ) + 
+  geom_vline(
+    aes(
+      xintercept = lower
+    ), 
+    colour = "red"
+  ) + 
+  geom_vline(
+    aes(
+      xintercept = upper
+    ), 
+    colour = "red"
+  ) +
+  labs(
+    x = "Vehicle flood Depth (ft)",
+    y = "# of Simulations",
+    title = "Monte Carlo simulation for vehicle damage, Redwood City"
+  )
+```
+
+
+
+1.	Annually the building may encounter roughly 1 feet depth of flood, but it only occurs as sea level rise reaches to 50 cm. Once in every 20~100 years, the building may expose to 1.5~2 feet floods as sea level rise go over 25 cm or over.
+
+2.	The building percent damage is about 0.25 annually as sea level rise reaches to 50 cm. Once in every 20~100 years, the building percent damage may go between 0.25~0.3 or over. 
+
+3.	The total AAL across years (2020~2050) was estimated through the EMFAC vehicle growth rates adjustment by multiplying the middle 10 year AAL by 2030 growth rate, the following 10 years by 2040 growth rate, and the last 5 years by 2050 growth rate.
+
+4.	The vehicle damage percentage estimated in this assignment showed that as the sea level rise reaches over 50, the percentage of vehicle damage will go between the range of 0.25~0.38 for RP over 20 years. Considering the probabilities for sea level rise of above 25 for RP 20 and RP 100 are lower, the overall vehicle percent damage is under 0.015 across 9 scenarios. 
+
+5.	The trend between average flood depth and percent damage to vehicle is a pretty horizontal line which appears that average flood depth is not so strongly related to percent damage to vehicle in Redwood City. According to the case study report of Economic Guidance Memorandum, 09-04, Generic Depth-Damage Relationships for Vehicles in 2009, 28% of the flood damage sample is from Feather River, California. The vehicle damage in Redwood City may be minor but still with some probability.
+
+6.	There are 5% of population in Redwood City with no vehicle. They may walk, ride bicycles, take buses or transit, or other way of transportation instead of cars. Therefore, the vehicle damage estimated do not include the portion for these 5 % population.
+
+7.	As allocating the vehicle number to each block, these 5% people may be excluded. Then, the number of vehicles per person and the number of people per building can be calculated based on the other 95% population. 
+
+8.	About 30% of population in Redwood City have one car. 38% have two cars and 26% have three or more.  As allocating the vehicles per building, these percentages above may be considered further.
+
+9. Based on the Monte Carlo simulation result of depth for vehicle damage from the adopted vehicle vulnerability data, the 90% confidence interval of depth for vehicles are roughly (8.88,8.905)ft. 
+However, for the vehicle damage data in Redwood City, the average depth is far below the simulated mean 8.89 ft for all 9 flood scenarios. Accordingly, the percent damage derived based on the vehicle vulnerability model are really low.    
+The depth-damage relationship may be subject to a lot of uncertainty. The uncertainty may involve with a lot of aspects such as location of regions, the elevation of ground level, or local building/vehicle facility or management, which are not considered here.
+
