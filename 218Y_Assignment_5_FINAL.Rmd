@@ -1,0 +1,1847 @@
+
+---
+title: "218Y Assignment 5"
+author: "Lillian (Wei) Hung"
+date: "2022/03/01"
+output: html_document
+------
+
+
+```{r   setup, include=FALSE   }
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r}
+options(tigris_use_cache = TRUE)
+library(jsonlite)
+library(tidyverse)
+library(tigris)
+library(sf)
+library(mapview)
+library(leaflet)
+library(censusapi)
+library(corrplot)
+library(ggplot2)
+
+# Sys.setenv(CENSUS_KEY="59ba92e6096aa340bd6be1f3878bbfc2f03843e7")
+
+```
+
+```{r}
+# pa_api <- "545006EF-9BDB-11EC-B9BF-42010A800003"
+```
+
+```{r}
+# json <- fromJSON(paste0(
+#    "https://api.purpleair.com/v1/sensors?api_key=",
+#    pa_api,
+#    "&fields=name,location_type,latitude,longitude,PM25,temperature,humidity,primary_id_a,primary_key_a,secondary_id_a,secondary_key_a,primary_id_b,primary_key_b,secondary_id_b,secondary_key_b"
+#  ))
+```
+
+```{r}
+# all_sensors <- json %>% 
+#  .$data %>% 
+#  as.data.frame() %>% 
+#  set_names(json$fields) %>% 
+#  filter(
+#    !is.na(longitude),
+#    !is.na(latitude)
+#  ) %>% 
+#  st_as_sf(coords = c("longitude","latitude"), crs = 4326) %>% 
+#  mutate(location_type = ifelse(
+#    location_type == 0,
+#    "outside",
+#    "inside"
+#  ))
+
+```
+
+```{r}
+# saveRDS(all_sensors,"all_sensors.rds")
+
+all_sensors <- readRDS("all_sensors.rds")
+```
+
+```{r}
+bay_counties <- readRDS("bay_counties.rds")
+```
+
+```{r}
+bay_counties <-
+  bay_counties  %>%
+  st_transform(4326)
+```
+
+```{r}
+bay_sensors <-
+  all_sensors  %>%
+  .[bay_counties, ] 
+```
+
+```{r}
+bay_sensors_clean <- bay_sensors %>% 
+  filter(
+    !is.na(pm2.5_1week),
+    !is.na(humidity)
+  ) %>% 
+  mutate(
+    PM25 = 0.524*as.numeric(pm2.5_1week) - 0.0852*as.numeric(humidity) + 5.72,
+    AQI = case_when(
+      PM25 <= 12 ~ 
+        paste(round(50/12*PM25), "Good"),
+      PM25 <= 35.4 ~ 
+        paste(round((100-51)/(35.4-12)*(PM25 - 12) + 51), "Moderate"),
+      PM25 <= 55.4 ~
+        paste(round((150-101)/(55.4-35.4)*(PM25 - 35.4) + 101), "Moderately Unhealthy"),
+      PM25 <= 150.4 ~
+        paste(round((200-151)/(150.4-55.4)*(PM25 - 55.4) + 151), "Unhealthy"),
+      PM25 <= 250.4 ~
+        paste(round((300-201)/(250.4-150.4)*(PM25 - 150.4) + 201), "Very Unhealthy"),
+      TRUE ~ 
+        paste(round((500-301)/(500.4-250.5)*(PM25 - 250.5) + 301), "Hazardous")
+    )
+  ) %>% 
+  separate(
+    AQI,
+    into = c("AQI","AQI_Cat"),
+    sep = " ",
+    extra = "merge"
+  ) %>% 
+  mutate(
+    AQI = as.numeric(AQI),
+    AQI_Cat = AQI_Cat %>% factor(levels = c("Good", "Moderate","Moderately Unhealthy","Unhealthy","Very Unhealthy","Hazardous"))
+  )
+
+saveRDS(bay_sensors_clean,"bay_sensors_clean.rds")
+```  
+
+```{r}
+# smc_cbgs <- block_groups("CA","San Mateo", cb = T, progress_bar = F) %>% 
+# st_transform(4326)
+
+# saveRDS(smc_cbgs,"smc_cbgs.rds")
+```
+
+```{r}
+Redwood_boundary <-
+readRDS("Redwood_boundary.rds") %>% 
+st_transform(4326)
+```
+
+```{r}
+RW_cbgs <-
+readRDS("Redwood_cbgs.rds") %>% 
+st_transform(4326)
+```
+
+```{r}
+# RW_sensors <-
+#  bay_sensors_clean %>% 
+#  filter(location_type == "outside") %>% 
+#  .[RW_cbgs, ]
+```
+
+Jurisdictions in San Mateo County
+```{r}
+# ca_cities <- places("CA", cb = T) %>% 
+#  st_transform(4326)
+
+# smc_cities <- ca_cities %>% 
+#   .[smc_boundary, ] 
+
+# saveRDS(smc_cities,"smc_cities.rds")
+
+smc_cities <- readRDS("smc_cities.rds")
+
+mapview(smc_cities)
+```
+
+```{r}
+# saveRDS(RW_sensors,"RW_sensors.rds")
+# saveRDS(PA_sensors,"PA_sensors.rds")
+```
+
+```{r}
+RW_sensors <-
+readRDS("RW_sensors.rds")
+```
+
+
+```{r}
+# start <- "2022-02-22%2000:08:00"
+# end <- "2022-02-28%2000:08:00"
+
+# sensor_data_4 <- 
+#  1:nrow(RW_sensors) %>% 
+#  map_dfr(function(row){
+  
+#  print(paste0(row,". ",RW_sensors[row,]$sensor_index))
+  
+#  a1 <- read_csv(paste0(
+#    "https://api.thingspeak.com/channels/",
+#    RW_sensors[row,]$primary_id_a,
+#    "/feeds.csv?api_key=",
+#    RW_sensors[row,]$primary_key_a,
+#    "&average=1440&round=3&start=",start,
+#    "&end=", end, 
+#    "&timezone=America/Los_Angeles"
+#  ), show_col_types = F) %>% 
+#    set_names(c("created_at","PM1.0_CF_1_ug/m3_A","PM2.5_CF_1_ug/m3_A","PM10.0_CF_1_ug/m3_A","Uptime_Minutes_A","RSSI_dbm_A","Temperature_F_A","Humidity_%_A","PM2.5_CF_ATM_ug/m3_A"))
+      
+#  a2 <- read_csv(paste0(
+#    "https://api.thingspeak.com/channels/",
+#    RW_sensors[row,]$secondary_id_a,
+#    "/feeds.csv?api_key=",
+#    RW_sensors[row,]$secondary_key_a,
+#    "&average=1440&round=3&start=",start,
+#    "&end=", end, 
+#    "&timezone=America/Los_Angeles"
+#  ), show_col_types = F) %>% 
+#    set_names(c("created_at","0.3um/dl_A","0.5um/dl_A","1.0um/dl_A","2.5um/dl_A","5.0um/dl_A","10.0um/dl_A","PM1.0_CF_ATM_ug/m3_A","PM10_CF_ATM_ug/m3_A"))
+    
+#  b1 <- read_csv(paste0(
+#    "https://api.thingspeak.com/channels/",
+#    RW_sensors[row,]$primary_id_b,
+#    "/feeds.csv?api_key=",
+#    RW_sensors[row,]$primary_key_b,
+#    "&average=1440&round=3&start=",start,
+#    "&end=", end, 
+#    "&timezone=America/Los_Angeles"
+#  ), show_col_types = F) %>% 
+#    set_names(c("created_at","PM1.0_CF_1_ug/m3_B","PM2.5_CF_1_ug/m3_B","PM10.0_CF_1_ug/m3_B","HEAP_B","ADC0_voltage_B","Atmos_Pres_B","Not_Used_B","PM2.5_CF_ATM_ug/m3_B"))
+  
+#  b2 <- read_csv(paste0(
+#    "https://api.thingspeak.com/channels/",
+#    RW_sensors[row,]$secondary_id_b,
+#    "/feeds.csv?api_key=",
+#    RW_sensors[row,]$secondary_key_b,
+#    "&average=1440&round=3&start=",start,
+#    "&end=", end, 
+#    "&timezone=America/Los_Angeles"
+#  ), show_col_types = F) %>% 
+#    set_names(c("created_at","0.3um/dl_B","0.5um/dl_B","1.0um/dl_B","2.5um/dl_B","5.0um/dl_B","10.0um/dl_B","PM1.0_CF_ATM_ug/m3_B","PM10_CF_ATM_ug/m3_B"))
+  
+#  combined <- a1 %>% 
+#    left_join(a2, by = "created_at") %>% 
+#    left_join(b1, by = "created_at") %>% 
+#    left_join(b2, by = "created_at") %>% 
+#    transmute(
+#      date = as.Date(created_at),
+#      ID = as.numeric(RW_sensors[row,]$sensor_index),
+#      Location = RW_sensors[row,]$location_type,
+#      PM25 = 0.524*as.numeric(`PM2.5_CF_1_ug/m3_A`) - 0.0852*as.numeric(`Humidity_%_A`) + 5.72
+#    )
+
+# })
+```
+
+```{r}
+# RW_sensor_data_ID <-
+#  rbind(sensor_data_1,sensor_data_2,
+#        sensor_data_3,sensor_data_4) %>%
+#  mutate (city = "Redwood City")
+
+# saveRDS(RW_sensor_data_ID,"RW_sensor_data_ID.rds")
+```
+
+```{r}
+# sensor_data_ID_all <- 
+#  rbind(RW_sensor_data_ID, PA_sensor_data_ID)
+
+# saveRDS(sensor_data_ID_all,"sensor_data_ID_all.rds")
+```
+
+```{r}
+# sensor_data_all_time <- sensor_data_ID_all %>% 
+#  group_by(city,Location, date) %>% 
+#  summarize(
+#    PM25 = mean(PM25, na.rm = T)
+#  )
+
+# saveRDS(sensor_data_all_time,"sensor_data_all_time.rds")
+```
+
+```{r}
+sensor_data_all_time <-
+readRDS("sensor_data_all_time.rds")
+```
+
+
+Outdoor PM25 for Redwood City is overall greater than Palo Alto in February, 2022.
+Both series show a weekly periodic pattern with peak values on the weekends.
+
+```{r}
+sensor_data_all_time  %>%  
+  filter(Location == "outside" ) %>%
+  ggplot() +
+  geom_line(
+    aes(
+      x = date,
+      y = PM25,
+      color = city
+    )
+  )
+```
+
+Indoor PM25 for both cities are pretty much the same, which confirms the known fact. 
+Both indoor PM25 series still show a weekly periodic pattern with peak values on the weekends.
+
+```{r}
+sensor_data_all_time  %>%  
+  filter(Location == "inside" ) %>%
+  ggplot() +
+  geom_line(
+    aes(
+      x = date,
+      y = PM25,
+      color = city
+    )
+  )
+```
+
+```{r}
+sensor_data_ID_all <-
+readRDS("sensor_data_ID_all.rds")
+
+sensor_data_all_map <- sensor_data_ID_all %>% 
+  group_by(city,Location, ID) %>% 
+  summarize(
+    PM25 = mean(PM25, na.rm = T)
+  )
+
+saveRDS(sensor_data_all_map,"sensor_data_all_map.rds")
+```
+
+```{r}
+bay_sensors_clean <- 
+readRDS("bay_sensors_clean.rds")
+```
+
+```{r}
+bay_sensors_clean_rename <- 
+bay_sensors_clean %>%
+  rename(Location=location_type ) %>%
+  select(sensor_index, Location) %>% 
+  st_as_sf()
+
+saveRDS(bay_sensors_clean_rename,"bay_sensors_clean_rename.rds")
+```
+
+```{r}
+sensor_data_ID_map <- sensor_data_all_map  %>%
+  mutate(sensor_index=ID %>% as.character()) %>%
+    left_join(bay_sensors_clean_rename)
+
+# %>% 
+#  st_as_sf()
+```
+
+```{r}
+sensor_data_ID_map_AQI <- sensor_data_ID_map %>% 
+  filter(!is.na(PM25)) %>% 
+  mutate(
+      AQI = case_when(
+      PM25 <= 12 ~ 
+        paste(round(50/12*PM25), "Good"),
+      PM25 <= 35.4 ~ 
+        paste(round((100-51)/(35.4-12)*(PM25 - 12) + 51), "Moderate"),
+      PM25 <= 55.4 ~
+        paste(round((150-101)/(55.4-35.4)*(PM25 - 35.4) + 101), "Moderately Unhealthy"),
+      PM25 <= 150.4 ~
+        paste(round((200-151)/(150.4-55.4)*(PM25 - 55.4) + 151), "Unhealthy"),
+      PM25 <= 250.4 ~
+        paste(round((300-201)/(250.4-150.4)*(PM25 - 150.4) + 201), "Very Unhealthy"),
+      TRUE ~ 
+        paste(round((500-301)/(500.4-250.5)*(PM25 - 250.5) + 301), "Hazardous")
+    )
+  ) %>% 
+  separate(
+    AQI,
+    into = c("AQI","AQI_Cat"),
+    sep = " ",
+    extra = "merge"
+  ) %>% 
+  mutate(
+    AQI = as.numeric(AQI),
+    AQI_Cat = AQI_Cat %>% factor(levels = c("Good", "Moderate","Moderately Unhealthy","Unhealthy","Very Unhealthy","Hazardous"))
+  ) 
+
+saveRDS(sensor_data_ID_map_AQI ,"sensor_data_ID_map_AQI.rds")
+```
+
+```{r}
+sensor_data_ID_map_AQI_transformed <-
+  sensor_data_ID_map_AQI %>%
+  st_as_sf() %>% 
+  st_transform(4326)
+
+saveRDS(sensor_data_ID_map_AQI_transformed,"sensor_data_ID_map_AQI_transformed.rds")
+
+```
+
+Outdoor AQI in February, 2022 is generally good both for Redwood City and Palo Alto with only one area being hazardous.
+
+```{r}
+aqi_pal <- colorFactor(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = sensor_data_ID_map_AQI_transformed$AQI_Cat
+)
+
+sensor_data_ID_map_AQI_transformed %>% 
+  filter(Location == "outside") %>% 
+  filter(city == "Redwood City") %>%
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal(AQI_Cat),
+    label = ~AQI_Cat,
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal,
+    values = ~AQI_Cat
+  )
+```
+
+```{r}
+aqi_pal2 <- colorQuantile(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = sensor_data_ID_map_AQI_transformed$AQI,
+  n = 5
+)
+
+sensor_data_ID_map_AQI_transformed %>% 
+  filter(Location == "outside") %>% 
+  filter(city == "Redwood City") %>%
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal2(AQI),
+    label = ~paste0(AQI,", ",AQI_Cat),
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal2,
+    values = ~AQI
+  )
+```
+
+```{r}
+aqi_pal <- colorFactor(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = sensor_data_ID_map_AQI_transformed$AQI_Cat
+)
+
+sensor_data_ID_map_AQI_transformed %>% 
+  filter(Location == "outside") %>% 
+  filter(city == "Palo Alto") %>%
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal(AQI_Cat),
+    label = ~AQI_Cat,
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal,
+    values = ~AQI_Cat
+  )
+```
+
+```{r}
+aqi_pal2 <- colorQuantile(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = sensor_data_ID_map_AQI_transformed$AQI,
+  n = 5
+)
+
+sensor_data_ID_map_AQI_transformed %>% 
+  filter(Location == "outside") %>% 
+  filter(city == "Palo Alto") %>%
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal2(AQI),
+    label = ~paste0(AQI,", ",AQI_Cat),
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal2,
+    values = ~AQI
+  )
+```
+
+```{r}
+bay_sensors_clean_rename <-
+  bay_sensors_clean_rename %>%
+   st_transform(st_crs(bay_counties))
+```
+
+```{r}
+sensor_data_ID_map_AQI_transformed_voronoi <-
+  sensor_data_ID_map_AQI_transformed %>%
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_transform(st_crs(bay_counties)) %>%
+  st_intersection(.,st_union(bay_counties)) %>% 
+  st_join(bay_sensors_clean_rename) %>%
+  st_transform(st_crs(bay_counties))
+```
+
+```{r}
+ggplot(sensor_data_ID_map_AQI_transformed_voronoi) + geom_sf()  
+```
+
+```{r}
+# smc_boundary <- counties("CA") %>% 
+#  filter(NAME == "San Mateo") %>% 
+#  st_transform(st_crs(pois))
+# save(smc_boundary,"smc_boundary.rds")
+
+# saveRDS(smc_boundary,"smc_boundary.rds")
+smc_boundary <- readRDS("smc_boundary.rds")
+```
+
+```{r}
+smc_sensors <-
+  bay_sensors_clean %>% 
+  .[smc_boundary, ]
+```
+
+```{r}
+smc_sensors_clean <- smc_sensors %>% 
+  filter(
+    !is.na(pm2.5_1week),
+    !is.na(humidity)
+  ) %>% 
+  mutate(
+    PM25 = 0.524*as.numeric(pm2.5_1week) - 0.0852*as.numeric(humidity) + 5.72,
+    AQI = case_when(
+      PM25 <= 12 ~ 
+        paste(round(50/12*PM25), "Good"),
+      PM25 <= 35.4 ~ 
+        paste(round((100-51)/(35.4-12)*(PM25 - 12) + 51), "Moderate"),
+      PM25 <= 55.4 ~
+        paste(round((150-101)/(55.4-35.4)*(PM25 - 35.4) + 101), "Moderately Unhealthy"),
+      PM25 <= 150.4 ~
+        paste(round((200-151)/(150.4-55.4)*(PM25 - 55.4) + 151), "Unhealthy"),
+      PM25 <= 250.4 ~
+        paste(round((300-201)/(250.4-150.4)*(PM25 - 150.4) + 201), "Very Unhealthy"),
+      TRUE ~ 
+        paste(round((500-301)/(500.4-250.5)*(PM25 - 250.5) + 301), "Hazardous")
+    )
+  ) %>% 
+  separate(
+    AQI,
+    into = c("AQI","AQI_Cat"),
+    sep = " ",
+    extra = "merge"
+  ) %>% 
+  mutate(
+    AQI = as.numeric(AQI),
+    AQI_Cat = AQI_Cat %>% factor(levels = c("Good", "Moderate","Moderately Unhealthy","Unhealthy","Very Unhealthy","Hazardous"))
+  )
+
+saveRDS(smc_sensors_clean, "smc_sensors_clean.rds")
+```
+
+Indoor AQI in SMC is generally in good or moderate state.
+
+```{r}
+aqi_pal <- colorFactor(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = smc_sensors_clean$AQI_Cat
+)
+
+smc_sensors_clean %>% 
+  filter(location_type == "inside") %>% 
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal(AQI_Cat),
+    label = ~AQI_Cat,
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal,
+    values = ~AQI_Cat
+  )
+```
+
+Indoor AQI in SMC
+
+```{r}
+aqi_pal2 <- colorQuantile(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = smc_sensors_clean$AQI,
+  n = 5
+)
+
+smc_sensors_clean %>% 
+  filter(location_type == "inside") %>%   
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal2(AQI),
+    label = ~paste0(AQI,", ",AQI_Cat),
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal2,
+    values = ~AQI
+  )
+```
+
+Outdoor AQI in SMC is also generally in good or moderate state.
+
+```{r}
+aqi_pal <- colorFactor(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = smc_sensors_clean$AQI_Cat
+)
+
+smc_sensors_clean %>% 
+  filter(location_type == "outside") %>% 
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal(AQI_Cat),
+    label = ~AQI_Cat,
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal,
+    values = ~AQI_Cat
+  )
+```
+
+Outdoor AQI in SMC
+
+```{r}
+aqi_pal2 <- colorQuantile(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = smc_sensors_clean$AQI,
+  n = 5
+)
+
+smc_sensors_clean %>% 
+  filter(location_type == "outside") %>%   
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal2(AQI),
+    label = ~paste0(AQI,", ",AQI_Cat),
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal2,
+    values = ~AQI
+  )
+```
+
+```{r}
+smc_pm25_voronoi <-
+  smc_sensors_clean %>%
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(smc_boundary)) %>% 
+  st_join(smc_sensors_clean)
+
+saveRDS(smc_pm25_voronoi,"smc_pm25_voronoi.rds")
+```
+
+SMC voronoi plot is as follows.
+
+```{r}
+smc_pm25_voronoi_plot <- smc_pm25_voronoi %>%
+  filter(location_type == "inside") 
+
+ggplot(smc_pm25_voronoi_plot) + geom_sf()  
+```
+
+```{r}
+# smc_cbgs <- block_groups("CA","San Mateo", cb = T, progress_bar = F) %>% 
+#  st_transform(4326)
+
+# saveRDS(smc_cbgs,"smc_cbgs.rds")
+
+smc_cbgs <-
+ readRDS("smc_cbgs.rds")
+```
+
+```{r}
+smc_pm25_voronoi_O <-
+  smc_pm25_voronoi %>% 
+  filter(location_type == "outside") %>% 
+  st_intersection(smc_cbgs) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  )
+
+saveRDS(smc_pm25_voronoi_O,"smc_pm25_voronoi_O.rds")
+```
+
+```{r}
+smc_pm25_voronoi_cbg_out  <- smc_pm25_voronoi_O %>% 
+  st_drop_geometry() %>% 
+  group_by(GEOID) %>% 
+  summarize(
+    count=n(),
+    PM25 = weighted.mean(PM25, area, na.rm = T)
+  ) %>% 
+  left_join(smc_cbgs %>% dplyr::select(GEOID)) %>%
+     st_as_sf() %>%
+  mutate(Location = "outside")
+
+saveRDS(smc_pm25_voronoi_cbg_out,"smc_pm25_voronoi_cbg_out.rds")
+
+```
+
+```{r}
+smc_pm25_voronoi_I <-
+  smc_pm25_voronoi %>% 
+  filter(location_type == "inside") %>% 
+  st_intersection(smc_cbgs) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  )
+
+saveRDS(smc_pm25_voronoi_I,"smc_pm25_voronoi_I.rds")
+
+```
+
+```{r}
+smc_pm25_voronoi_cbg_in <- smc_pm25_voronoi_I     %>% 
+  st_drop_geometry() %>% 
+  group_by(GEOID) %>% 
+  summarize(
+    count=n(),
+    PM25 = weighted.mean(PM25, area, na.rm = T)
+  ) %>% 
+  left_join(smc_cbgs %>% dplyr::select(GEOID)) %>%
+  st_as_sf() %>%
+  mutate(Location = "inside")
+```
+
+```{r}
+saveRDS(smc_pm25_voronoi_cbg_in,"smc_pm25_voronoi_cbg_in.rds")
+
+```
+
+```{r}
+smc_pm25_voronoi_cbg <-
+  rbind(smc_pm25_voronoi_cbg_in,smc_pm25_voronoi_cbg_out)
+
+saveRDS(smc_pm25_voronoi_cbg,"smc_pm25_voronoi_cbg.rds")
+```
+
+The point estimation of PM2.5 based on voronoi technique is as follows.
+
+```{r}
+pm25_pal <- colorNumeric(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = c(
+    smc_pm25_voronoi_cbg$PM25,
+    smc_sensors$PM25
+  )
+)
+
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = smc_pm25_voronoi_cbg %>% 
+      filter(Location == "inside") %>%
+      filter(GEOID != "060759804011"), 
+    fillColor = ~pm25_pal(PM25),
+    fillOpacity = 0.5,
+    color = "white",
+    weight = 0.5,
+    label = ~PM25,
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>% 
+  addCircleMarkers(
+    data = smc_sensors,
+    fillColor = ~pm25_pal(PM25),
+    fillOpacity = 1,
+    color = "black",
+    weight = 0.5,
+    radius = 5,
+    label = ~PM25
+  ) %>% 
+  addLegend(
+    pal = pm25_pal,
+    values = c(
+      smc_pm25_voronoi_cbg$PM25,
+      smc_sensors$PM25
+    )
+  )
+```
+
+```{r}
+# acs_vars_2019_5yr <-
+# readRDS("acs_vars_2019_5yr.rds")
+```
+
+```{r}
+# smc_income_cbgs <-
+#    getCensus(
+#      name = "acs/acs5",
+#      vintage = 2019,
+#      region = "block group:*", 
+#    regionin = "state:06+county:081",  
+#      vars = "group(B19001)"
+#    ) %>%
+#   mutate(cbg =     paste0(state,county,tract,block_group) )  %>%     
+#      select(!c(GEO_ID,NAME,state,county,tract,block_group) & !ends_with(c("EA","MA","M"))) %>%
+#      pivot_longer(
+#        ends_with("E"),
+#        names_to = "name",
+#        values_to = "estimate"
+#      ) %>%
+#      left_join(
+#        acs_vars_2019_5yr %>% 
+#          select(name, label)
+#      ) %>% 
+#      select(-name) %>% 
+#      separate(
+#        label,
+#        into = c(NA,NA,"income"),
+#        sep = "!!"
+#      ) %>% 
+#      filter(!is.na(income)) 
+ 
+
+# saveRDS(smc_income_cbgs,"smc_income_cbgs.rds")
+```
+
+```{r}
+smc_income_cbgs <-
+readRDS("smc_income_cbgs.rds")
+```
+
+```{r}
+smc_pm25_voronoi_cbg_income <-
+   smc_pm25_voronoi_cbg %>% 
+  left_join(
+    smc_income_cbgs, by = c("GEOID" = "cbg")
+  ) %>% st_drop_geometry() %>% 
+  mutate(
+    PM25_tier =
+      case_when(
+        PM25 < 2 ~ "0-2",
+        PM25 < 4 ~ "2-4",
+        PM25 < 6 ~ "4-6",
+        PM25 < 8 ~ "6-8",
+        PM25 < 10 ~ "8-10",
+        PM25 < 12 ~ "10-12",
+        PM25 < 14 ~ "12-14",
+        TRUE ~ "14+" )
+   ) 
+```
+
+```{r}
+smc_pm25_voronoi<-
+smc_pm25_voronoi_cbg_income  %>% 
+  mutate(income_tier= 
+    ifelse(income=="Less than $10,000"  |
+           income=="$10,000 to $14,999" |
+           income=="$15,000 to $19,999","<20K", 
+    ifelse(income=="$20,000 to $24,999" |
+           income=="$25,000 to $29,999" |
+           income=="$30,000 to $34,999","20-35K",
+    ifelse(income=="$35,000 to $39,999" |
+           income=="$40,000 to $44,999" |
+           income=="$45,000 to $49,999","35-50K",      ifelse(income=="$50,000 to $59,999" |
+           income=="$60,000 to $74,999" |
+           income=="$75,000 to $99,999","50-100K",     ifelse(income=="$100,000 to $124,999" |
+           income=="$125,000 to $149,999" |
+           income=="$150,000 to $199,999",
+           "100-200K", ">200K"
+  )))))) 
+```
+
+```{r}
+smc_pm25_income <-
+  smc_pm25_voronoi %>%
+  group_by(Location,income_tier, PM25_tier) %>% 
+  summarize(estimate = sum(estimate, na.rm = T))
+```
+
+```{r}
+# saveRDS(smc_pm25_income ,"smc_pm25_income.rds")
+```
+
+```{r}
+# smc_pm25_income <-
+#  readRDS("smc_pm25_income.rds")
+```
+
+```{r}
+smc_blocks_decpl_race_2020_P1_simple <- readRDS ( "smc_blocks_decpl_race_2020_P1_simple.RDS") %>%
+  mutate(estimate = as.numeric(estimate)) %>% filter(!is.na(race)) 
+```
+
+```{r}
+smc_race_cbgs <-
+smc_blocks_decpl_race_2020_P1_simple %>%
+mutate(cbg = substr(SCTB_block, 1,12) ) %>%
+  group_by(cbg,race) %>%
+    summarize(
+      estimate=sum(estimate, na.rm = T))
+
+saveRDS(smc_race_cbgs,"smc_race_cbgs.rds")
+
+```
+
+```{r}
+smc_pm25_voronoi_cbg_race <-
+   smc_pm25_voronoi_cbg %>% 
+  left_join(
+    smc_race_cbgs, by = c("GEOID" = "cbg")
+  ) %>% st_drop_geometry() %>% 
+  mutate(
+    PM25_tier =
+      case_when(
+        PM25 < 2 ~ "0-2",
+        PM25 < 4 ~ "2-4",
+        PM25 < 6 ~ "4-6",
+        PM25 < 8 ~ "6-8",
+        PM25 < 10 ~ "8-10",
+        PM25 < 12 ~ "10-12",
+        PM25 < 14 ~ "12-14",
+        TRUE ~ "14+" )
+   ) 
+
+saveRDS(smc_pm25_voronoi_cbg_race,"smc_pm25_voronoi_cbg_race.rds")
+```
+
+```{r}
+smc_pm25_race <-
+smc_pm25_voronoi_cbg_race  %>% 
+  filter(!is.na(race)) %>% 
+  group_by(Location,race, PM25_tier) %>% 
+  summarize(estimate = sum(estimate, na.rm = T)) %>%
+ mutate(race_tier= 
+   ifelse(race=="American Indian and Alaska Native alone", "American Indian", 
+   ifelse(race=="Asian alone","Asian",
+   ifelse(race=="Black or African American alone","Black", 
+   ifelse(race=="Native Hawaiian and Other Pacific Islander alone","Native Hawaiian",     ifelse(race=="Some Other Race alone",
+           "Other", "White"
+  )))))) %>%
+  group_by(Location,race_tier, PM25_tier) %>% 
+  summarize(estimate = sum(estimate, na.rm = T))
+```
+
+```{r}
+# saveRDS(smc_pm25_race,"smc_pm25_race.rds")
+```
+
+```{r}
+# smc_pm25_race <-
+# readRDS("smc_pm25_race.rds")
+```
+
+```{r}
+smc_pm25_I <-
+smc_pm25_income %>%
+rename(group=income_tier) %>%
+mutate(type = "Income") 
+```
+
+```{r}
+smc_pm25_R <-
+smc_pm25_race %>%
+rename(group=race_tier)  %>%
+mutate(type = "Race") 
+```
+
+```{r}
+smc_pm25 <-
+rbind(smc_pm25_I,smc_pm25_R) %>%
+  select(type,Location,group,PM25_tier,estimate)
+
+saveRDS(smc_pm25,"smc_pm25.rds")
+```
+
+Outside PM2.5 are generally in the range of 2-8 in San Mateo County, with the category 4-6 having the highest number of householders. 
+
+```{r}
+Plot1 <- smc_pm25 %>% 
+  filter(Location == "outside") %>% 
+  filter(type == "Income")  %>%
+  ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "stack"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Number of households",
+    fill="Group",
+    title = "Outside PM2.5 exposure by income in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot1
+```
+
+There is a pattern that as the income >$200K, the householders tend to live in locations with lower outside PM2.5. The other groups with income <$200K have higher population percentages living in locations with higher PM2.5 exposure.
+
+```{r}
+Plot2 <- smc_pm25 %>% 
+  filter(Location == "outside") %>% 
+  filter(type == "Income")  %>%
+  ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Proportions of households",
+    fill="Group",
+    title = "Outside PM2.5 exposure by income in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot2
+```
+
+Inside PM2.5 are generally in the range of 2-8 in San Mateo County, with the category 4-6 having the highest number of householders. 
+
+
+```{r}
+Plot3 <- smc_pm25 %>% 
+  filter(Location == "inside") %>% 
+  filter(type == "Income")  %>%
+  ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "stack"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Number of households",
+    fill="Group",
+    title = "Inside PM2.5 exposure by income\nin San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot3
+```
+
+The group with income greater than $200K tend to have higher percentages of population living in locations with inside PM2.5 lower than 6. The other income groups seem to live in locations with inside PM2.5 higher than 6.
+
+
+```{r}
+Plot4 <- smc_pm25 %>% 
+  filter(Location == "inside") %>% 
+  filter(type == "Income")  %>%
+  ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Proportions of households",
+    fill="Group",
+    title = "Inside PM2.5 exposure by income in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot4
+```
+
+```{r}
+Plot5 <- smc_pm25 %>% 
+  filter(Location == "outside") %>% 
+  filter(type == "Race")  %>%
+  ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "stack"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Number of households",
+    fill="Group",
+    title = "Outside PM2.5 exposure by race in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot5
+```
+
+```{r}
+Plot6 <- smc_pm25 %>% 
+  filter(Location == "outside") %>% 
+  filter(type == "Race")  %>%
+  ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Proportions of households",
+    fill="Group",
+    title = "Outside PM2.5 exposure by race in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot6
+```
+
+```{r}
+Plot7 <- smc_pm25 %>% 
+  filter(Location == "inside") %>% 
+  filter(type == "Race")  %>%
+  ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "stack"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Number of households",
+    fill="Group",
+    title = "Inside PM2.5 exposure by race\nin San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+    
+```
+
+```{r}
+Plot7
+```
+
+More percentages of Asian live in locations with inside PM2.5 >12, particularly 14+. Other races have somewhat higher percentages of population living in locations with inside PM2.5 in the range of 6-12. On the contrary, white group tend to live in places with lower inside PM2.5, especially in the category of 4-6.
+Therefore, Asian is the most vulnerable race group for inside PM2.5 exposure.
+
+```{r}
+Plot8 <- smc_pm25 %>% 
+  filter(Location == "inside") %>% 
+  filter(type == "Race") %>%
+ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Proportions of households",
+    fill="Group",
+    title = "Inside PM2.5 exposure by race in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot8
+```
+
+```{r}
+Plot9 <- smc_pm25 %>% 
+  filter(Location == "inside") %>% 
+  filter(type == "Race")  %>%
+  ggplot() +
+  geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Proportions of households",
+    fill="Group",
+    title = "Inside PM2.5 exposure by race in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot9
+```
+
+```{r}
+smc_pm25_I <-
+smc_pm25_income %>%
+rename(group=income_tier) %>%
+mutate(type = "Income") 
+```
+
+```{r}
+smc_pm25_R <-
+smc_pm25_race %>%
+rename(group=race_tier)  %>%
+mutate(type = "Race") 
+```
+
+```{r}
+smc_pm25 <-
+rbind(smc_pm25_I,smc_pm25_R) %>%
+  select(type,Location,group,PM25_tier,estimate)
+
+saveRDS(smc_pm25,"smc_pm25.rds")
+```
+ 
+```{r}
+smc_bs_race_wide <-
+  smc_blocks_decpl_race_2020_P1_simple %>%
+  mutate(estimate = as.numeric (estimate)) %>% 
+  pivot_wider(
+    names_from = race,values_from = estimate
+  ) %>%
+  mutate(
+    White=`White alone`,
+    Black_African=`Black or African American alone`,     American_Indian = `American Indian and Alaska Native alone`,
+    Asian=`Asian alone`,
+    Native_Hawaiian = `Native Hawaiian and Other Pacific Islander alone`,
+    Some_Other_Race =`Some Other Race alone`
+  )
+
+saveRDS(smc_bs_race_wide,"smc_bs_race_wide.RDS")
+```
+
+```{r}
+smc_cbgs_race_wide_perc <-
+smc_bs_race_wide %>%
+mutate(cbg = substr(SCTB_block, 1,12) ) %>%
+  group_by(cbg) %>%
+   summarise_at(vars(White,Black_African, 
+             American_Indian,Asian,Native_Hawaiian,
+             Some_Other_Race), sum,na.rm=T) %>%
+   mutate(
+     Total=White+Black_African+American_Indian+
+           Asian+Native_Hawaiian+Some_Other_Race,
+    White_perc= White/Total,
+    Black_African_perc=Black_African/Total,
+    American_Indian_perc=American_Indian/Total,
+    Asian_perc=Asian/Total,
+    Native_Hawaiian_perc= Native_Hawaiian/Total,
+     Some_Other_Race_perc= Some_Other_Race/Total) 
+
+saveRDS(smc_cbgs_race_wide_perc,"smc_cbgs_race_wide_perc.rds")
+
+```
+
+```{r}
+smc_race <-
+   smc_pm25_voronoi_cbg %>% 
+  left_join(
+    smc_cbgs_race_wide_perc, by = c("GEOID" = "cbg")
+  ) %>%
+  filter(!is.na(Total))
+
+saveRDS(smc_race,"smc_race.rds")
+```
+
+```{r}
+smc_cbgs_income_wide <-
+smc_income_cbgs %>%
+ pivot_wider(
+    names_from = income,values_from = estimate
+  ) %>%
+  mutate(
+    Under_10K=`Less than $10,000`,
+    Inc_10_to_15K =`$10,000 to $14,999`,
+    Inc_15_to_20K = `$15,000 to $19,999`,
+    Inc_20_to_25K =`$20,000 to $24,999`,
+    Inc_25_to_30K = `$25,000 to $29,999`,
+    Inc_30_to_35K =`$30,000 to $34,999`,
+    Inc_35_to_40K =`$35,000 to $39,999`,
+    Inc_40_to_45K =`$40,000 to $44,999`, 
+    Inc_45_to_50K = `$45,000 to $49,999`,
+    Inc_50_to_60K =`$50,000 to $59,999`,
+    Inc_60_to_75K =`$60,000 to $74,999`,
+    Inc_75_to_100K =`$75,000 to $99,999`,
+   Inc_100_to_125K =`$100,000 to $124,999`, 
+   Inc_125_to_150K = `$125,000 to $149,999`,
+   Inc_150_to_200K = `$150,000 to $199,999`,
+      over_200K = `$200,000 or more`
+  )
+
+saveRDS(smc_cbgs_income_wide,"smc_cbgs_income_wide.rds")
+```
+
+```{r}
+smc_cbgs_income_wide_perc <-
+smc_cbgs_income_wide %>%
+   mutate(
+     Total=  Under_10K + Inc_10_to_15K +
+         Inc_15_to_20K + Inc_20_to_25K + 
+         Inc_25_to_30K + Inc_30_to_35K +
+         Inc_35_to_40K + Inc_40_to_45K +
+         Inc_45_to_50K + Inc_50_to_60K +
+         Inc_60_to_75K + Inc_75_to_100K+ 
+         Inc_100_to_125K + Inc_125_to_150K +
+         Inc_150_to_200K + over_200K, 
+    Perc_Under_10K= Under_10K/Total,
+    Perc_10_to_15K= Inc_10_to_15K/Total,
+    Perc_15_to_20K =  Inc_15_to_20K/Total,
+    Perc_20_to_25K = Inc_20_to_25K/Total,
+    Perc_25_to_30K = Inc_25_to_30K/Total,
+    Perc_30_to_35K = Inc_30_to_35K/Total,
+    Perc_35_to_40K = Inc_35_to_40K/Total,
+    Perc_40_to_45K = Inc_40_to_45K/Total, 
+    Perc_45_to_50K = Inc_45_to_50K/Total,
+    Perc_50_to_60K = Inc_50_to_60K/Total,
+    Perc_60_to_75K = Inc_60_to_75K/Total,
+    Perc_75_to_100K = Inc_75_to_100K/Total,
+    Perc_100_to_125K = Inc_100_to_125K/Total,
+    Perc_125_to_150K = Inc_125_to_150K/Total,
+    Perc_150_to_200K = Inc_150_to_200K/Total,
+    Perc_over_200K = over_200K/Total
+   )
+```
+
+```{r}
+saveRDS(smc_cbgs_income_wide_perc,"smc_cbgs_income_wide_perc.rds")
+```
+
+```{r}
+smc_race_income <-
+  smc_race %>% 
+  select(-Total) %>% 
+  left_join(
+    smc_cbgs_income_wide_perc, by = c("GEOID" = "cbg")
+  ) %>%
+  filter(!is.na(Total)) %>%  
+  filter(!is.na(White_perc)) 
+
+saveRDS(smc_race_income,"smc_race_income.rds")
+```
+
+```{r}
+# summary(smc_race_income)
+```
+
+```{r}
+correlationplot1 <- 
+  smc_race_income %>%
+  st_drop_geometry()  %>% 
+  select(
+    count, White_perc, 
+    Black_African_perc,American_Indian_perc, 
+    PM25
+   )  %>% 
+cor()
+
+corrplot(
+  correlationplot1, 
+  method = "number",
+  type = "upper"
+)
+```
+
+```{r}
+correlationplot2 <- 
+   smc_race_income %>%
+   st_drop_geometry()  %>% 
+   select(
+    Asian_perc, Native_Hawaiian_perc,
+    Some_Other_Race_perc, PM25
+  )  %>% 
+cor()
+
+corrplot(
+  correlationplot2, 
+  method = "number",
+  type = "upper"
+)
+```
+
+```{r}
+correlationplot3 <- 
+  smc_race_income %>%
+  st_drop_geometry()  %>% 
+  select(
+    Perc_Under_10K,
+    Perc_10_to_15K,
+    Perc_15_to_20K,
+    Perc_20_to_25K,
+    Perc_25_to_30K,
+    Perc_30_to_35K,
+    Perc_35_to_40K,
+    Perc_40_to_45K, 
+    PM25
+   )  %>% 
+cor()
+
+corrplot(
+  correlationplot3, 
+  method = "number",
+  type = "upper"
+)
+```
+
+Sensor count, percentage of White population, percentage of Asian population, percentage of population with income in the categories of $75K to $100K,and over $200K have correlation coefficient with PM25 greater than 0.2. 
+
+```{r}
+correlationplot4 <- 
+  smc_race_income %>%
+  st_drop_geometry()  %>% 
+  select(
+    Perc_45_to_50K,
+    Perc_50_to_60K,
+    Perc_50_to_60K,
+    Perc_60_to_75K,
+    Perc_75_to_100K,
+    Perc_100_to_125K,
+    Perc_125_to_150K,
+    Perc_150_to_200K,
+    Perc_over_200K,
+    PM25
+   )  %>% 
+cor()
+
+corrplot(
+  correlationplot4, 
+  method = "number",
+  type = "upper"
+)
+```
+
+Regression model was fitted on PM25 with explanatory variables including sensor count, percentage of White population (White_perc), percentage of Asian population (Asian_perc), percentage of population with income in the categories of $75K to $100K (Perc_75_to_100K),
+and over $200K (Perc_over_200K).
+
+```{r}
+model <- lm(PM25 ~ count+ White_perc+ Asian_perc + Perc_75_to_100K + Perc_over_200K,
+  data= smc_race_income )
+```
+ 
+```{r}
+summary(model)
+```
+
+
+The result of regression model showed that percentage of White population is the most significant factor for PM25, followed by sensor count, and then the income population of $75K to $100K.
+
+Therefore, the equity score can be computed using the following regression model:
+
+equity_score = 6.31092 - 0.06870*count - 2.10614* White_perc + 2.54464*Perc_75_to_100K
+
+
+```{r}
+smc_race_income_map <-
+smc_race_income %>%
+  mutate(
+    equity_score = 6.31092 - 0.06870*count - 2.10614* White_perc + 2.54464*Perc_75_to_100K
+  ) %>%
+   mutate(sensor_placing = 
+    ifelse(equity_score <= 2.884, 6,
+    ifelse(equity_score <= 4.660, 5,
+    ifelse(equity_score <= 5.144, 4,
+    ifelse(equity_score <= 5.729, 3,
+    ifelse(equity_score < 6.963, 2,1     
+  )))))) 
+
+saveRDS(smc_race_income_map,"smc_race_income_map.rds")
+
+```
+
+```{r}
+summary(smc_race_income_map$equity_score)
+```
+
+```{r}
+smc_race_income_map_simple <-
+smc_race_income_map %>%
+  st_drop_geometry() %>%
+  filter(!is.na(White_perc)) %>%
+  select(Location,GEOID,sensor_placing,equity_score) 
+
+saveRDS(smc_race_income_map_simple,"smc_race_income_map_simple.rds")
+```
+
+```{r}
+smc_race_income_leftlet <-
+smc_race_income_map_simple %>%
+  right_join(
+    smc_cbgs %>% select(GEOID)) %>%
+  filter(!is.na(equity_score)) %>%
+  st_as_sf() %>%
+  st_transform(4326) 
+
+saveRDS(smc_race_income_leftlet,"smc_race_income_leftlet.rds")
+
+```
+
+```{r}
+# smc_race_income_leftlet_I_1  <-
+# smc_race_income_leftlet %>%
+#  filter(Location == "inside") %>% 
+#  mutate(
+#    rank=rank(-equity_score)
+#  ) %>%
+#  mutate(Top=
+#    ifelse(rank== 1, 1, 0)
+#  ) %>%
+#  mutate(Rank="1")
+
+```
+
+```{r}
+# smc_race_income_leftlet_O_1  <-
+# smc_race_income_leftlet %>%
+#  filter(Location == "outside") %>% 
+#  mutate(
+#    rank=rank(-equity_score)
+#  ) %>%
+#  mutate(Top=
+#    ifelse(rank<= 1, 1, 0)
+#  ) %>%
+#  mutate(Rank="1")
+
+```
+
+```{r}
+# smc_race_income_leftlet_O <-
+#  rbind(smc_race_income_leftlet_O_1,
+# smc_race_income_leftlet_O_5,
+# smc_race_income_leftlet_O_10,
+# smc_race_income_leftlet_O_20,
+# smc_race_income_leftlet_O_30,
+# smc_race_income_leftlet_O_40,
+# smc_race_income_leftlet_O_50
+#)
+
+# saveRDS(smc_race_income_leftlet_O,"smc_race_income_leftlet_O.rds")
+
+```
+
+```{r}
+# smc_race_income_leftlet_Top <-
+#  rbind(smc_race_income_leftlet_I,  smc_race_income_leftlet_O)
+
+# saveRDS(smc_race_income_leftlet_Top,"smc_race_income_leftlet_Top.rds")
+
+# saveRDS(smc_race_income_leftlet_I_50,"smc_race_income_leftlet_I_50.rds")
+
+# saveRDS(smc_race_income_leftlet_O_50,"smc_race_income_leftlet_O_50.rds")
+```
+
+```{r}
+res_pal <- colorNumeric(
+palette = "RdYlGn",
+domain = smc_race_income_leftlet$equity_score)
+
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = smc_race_income_leftlet,
+  fillColor = ~res_pal(equity_score),
+  color = "white",
+  opacity = 0.5,
+  fillOpacity = 0.5,
+  weight = 1,
+  label = "Sensor placing priority",
+  highlightOptions = highlightOptions(
+  weight = 2,
+  opacity = 1
+  ) ) %>%
+  addLegend(data = smc_race_income_leftlet,
+  pal = res_pal,
+  values = ~equity_score,
+  title = "Sensor placing priority<br>for census block groups<br>in San Matero County")
+```
+
+The top 50 census block groups with higher recommended indoor equity scores generated from the regression model are visualized in green color (value =1) as follows.
+
+smc_race_income_leftlet_O_50
+
+```{r}
+smc_race_income_leftlet_I_50 <-
+readRDS("smc_race_income_leftlet_I_50.rds")
+
+res_pal <- colorNumeric(
+palette = "RdYlGn",
+domain = smc_race_income_leftlet_I_50$Top)
+
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(data=smc_race_income_leftlet_I_50,
+  fillColor = ~res_pal(Top),
+  color = "white",
+  opacity = 0.5,
+  fillOpacity = 0.5,
+  weight = 1,
+  label = "Sensor placing priority",
+  highlightOptions = highlightOptions(
+  weight = 2,
+  opacity = 1
+  ) ) %>%
+  addLegend(data = smc_race_income_leftlet_I_50,
+  pal = res_pal,
+  values = ~Top,
+  title = "Sensor placing priority<br>for census block groups<br>in San Matero County")
+
+```
+
+The top 50 census block groups with higher recommended outdoor equity scores generated from the regression model are visualized in green color (value =1) as follows.
+
+```{r}
+smc_race_income_leftlet_O_50 <-
+readRDS("smc_race_income_leftlet_O_50.rds")
+
+res_pal <- colorNumeric(
+palette = "RdYlGn",
+domain = smc_race_income_leftlet_O_50$Top)
+
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(data=smc_race_income_leftlet_O_50,
+  fillColor = ~res_pal(Top),
+  color = "white",
+  opacity = 0.5,
+  fillOpacity = 0.5,
+  weight = 1,
+  label = "Sensor placing priority",
+  highlightOptions = highlightOptions(
+  weight = 2,
+  opacity = 1
+  ) ) %>%
+  addLegend(data = smc_race_income_leftlet_O_50,
+  pal = res_pal,
+  values = ~Top,
+  title = "Sensor placing priority<br>for census block groups<br>in San Matero County")
+
+```
+
+PART I  Geographic equity
+
+1.	Outdoor/Indoor air quality across 2 jurisdictions (Redwood City and Palo Alto in San Mateo County were analyzed and compared.
+
+2.	Daily averages for February 2022 were processed. PM2.5 and AQI were reported.
+
+3.	The point-estimates of outdoor air quality to census geographies were obtained and transformed using the textbook’s voronoi technique. 
+
+4.	The dashboard showed a time series for outdoor/indoor daily PM25 average exposure in Feb, 2022 and an AQI map.
+
+
+PART II  Population equity
+
+1.	Two equity analyses by race/income population groups were presented. 
+
+2.	Indoor/outdoor air quality exposure PM2.5 were compared.
+
+3.	Income groups are from ACS data at the CBG level. Racial groups are from Decennial data at the block level and then integrated into the CBG level.
+
+4.	For the CBG or block scales, each sensor’s household is assumed to be representative of the census geography. 
+
+5.	The equity analysis was based on the 4th week of February data including indoor/outdoor from the PurpleAir. The dashboard included a pane for a stacked bar chart for race and income.
+
+
+PART III  Data equity
+
+1.	An equity score was constructed using multiple regression model for SMC. 
+
+2.	Based the 4th week of February data including indoor/outdoor from the PurpleAir, regress PM25 on several explanatory variables including sensor count, percentages of income groups and racial groups. 
+
+3.	The correlation between PM25 and each individual explanatory variable were evaluated to justify which variable may be related to PM25 and consequently included in the regression model. 
+
+4.	The predicted regression values are considered to be the equity score which can be used as a way to communicate the degree to which information on the air quality of different population groups is disproportionately available, due to the availability of sensors. 
+
+5.	The dashboard presented a map of equity score distribution in SMC. 
+
+6.	The equity scores were ranked in descending order. The top 1, 5, 10, 20, 30, 40, 50 CBGs in SMC with higher equity scores can be selected and visualized in the leftlet map in the dashboard.
+
+7. Three explanatory variables, including sensor count, percentage of White population, and population percentage of income $75K to $100K, in the fitted regression model are significant with p value <0.1.  
+
+
+
+
+
+
+
