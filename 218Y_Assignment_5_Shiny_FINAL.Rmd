@@ -1,0 +1,528 @@
+---
+title: "Dashboard Demo"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    vertical_layout: fill
+---
+
+```{r global, include=FALSE}
+options(tigris_use_cache = TRUE)
+library(flexdashboard)
+library(tidyverse)
+library(leaflet)
+library(sf)
+library(plotly)
+library(tigris)
+
+sensor_data_all_time <-
+readRDS("sensor_data_all_time.rds")
+
+sensor_data_ID_map_AQI_transformed <-
+readRDS("sensor_data_ID_map_AQI_transformed.rds")
+
+smc_pm25 <- readRDS("smc_pm25.rds")
+
+smc_race_income_leftlet <-
+readRDS("smc_race_income_leftlet.rds")
+
+smc_race_income_leftlet_Top <-
+readRDS("smc_race_income_leftlet_Top.rds")
+
+```
+
+Page 1
+================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+checkboxGroupInput(
+  inputId = "CITY",
+  label = "Jurisdiction: ",
+  choices = c("Redwood City","Palo Alto"),
+  selected = "Redwood City",
+  inline = FALSE,
+  width = NULL,
+  choiceNames = NULL,
+  choiceValues = NULL
+)
+
+selectInput(
+  inputId = "LOCATION",
+  label = "LOCATION: ",
+  choices = c("inside","outside"),
+  selected = "outside"
+)
+
+```
+
+Column
+-------------------------------------
+### PART I. PM25 Exposure in Februnary, 2022
+```{r}
+plotlyOutput("plot")
+```
+
+```{r, context = "server"}
+observeEvent({
+  input$LOCATION
+  input$CITY
+  
+}, {
+  
+    chart <- sensor_data_all_time %>% 
+    filter(
+      Location %in% c(input$LOCATION),
+      city %in% c(input$CITY)
+    ) %>% 
+  ggplot() +
+  geom_line(
+    aes(
+      x = date,
+      y = PM25,
+      color=city
+     )
+  ) +
+  labs(
+      x = "Date",
+      y = "PM2.5",
+      title = "PM2.5 exposure"
+    ) 
+  
+   output$plot <- renderPlotly({
+    chart %>% 
+      ggplotly() %>% 
+      config(displayModeBar = F)
+  })
+  
+})
+```
+
+Column
+-------------------------------------
+
+### PART I. AQI in Februnary, 2022
+
+```{r}
+leafletOutput("map1")
+```
+
+```{r}
+observeEvent({
+  input$LOCATION
+  input$CITY
+}, {
+
+   AQI_sensor <-
+    sensor_data_ID_map_AQI_transformed %>% 
+    filter(
+      Location == input$LOCATION,
+      city == input$CITY
+    ) 
+  
+  aqi_pal1 <- colorQuantile(
+  palette = "RdYlGn",
+  reverse = T,
+  domain =  AQI_sensor$AQI, n = 5
+    )
+
+ output$map1 <- renderLeaflet({
+    AQI_sensor %>% 
+    leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal1(AQI),
+    label = ~paste0(AQI,", ",AQI_Cat),
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal1,
+    values = ~AQI
+  )
+
+  })
+  
+})
+```
+
+Page 2
+================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+checkboxGroupInput(
+  inputId = "CITY2",
+  label = "Jurisdiction: ",
+  choices = c("Redwood City","Palo Alto"),
+  selected = "Redwood City",
+  inline = FALSE,
+  width = NULL,
+  choiceNames = NULL,
+  choiceValues = NULL
+)
+
+selectInput(
+  inputId = "LOCATION2",
+  label = "LOCATION: ",
+  choices = c("inside","outside"),
+  selected = "outside"
+)
+
+```
+
+Column
+-------------------------------------
+
+###  PART I. AQI in Februnary, 2022
+
+```{r}
+leafletOutput("map2")
+```
+
+```{r}
+observeEvent({
+  input$LOCATION2
+  input$CITY2
+}, {
+   
+    AQI_sensor <-
+    sensor_data_ID_map_AQI_transformed %>% 
+    filter(
+      Location == input$LOCATION2,
+      city == input$CITY2
+    ) 
+  
+  aqi_pal2 <- colorFactor(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = sensor_data_ID_map_AQI_transformed$AQI_Cat
+)
+
+ output$map2 <- renderLeaflet({
+    AQI_sensor %>% 
+    leaflet() %>%  
+   addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal2(AQI_Cat),
+    label = ~AQI_Cat,
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal2,
+    values = ~AQI_Cat
+  )
+
+  })
+  
+})   
+   
+```
+   
+Page 3
+================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+checkboxGroupInput(
+  inputId = "TYPE",
+  label = "TYPE: ",
+  choices = c("Income","Race"),
+  selected = "Income",
+  inline = FALSE,
+  width = NULL,
+  choiceNames = NULL,
+  choiceValues = NULL
+)
+
+selectInput(
+  inputId = "LOCATION3",
+  label = "LOCATION: ",
+  choices = c("inside","outside"),
+  selected = "outside"
+)
+
+```
+
+
+Column 
+---------------------------------
+### PART II. PM25 Exposure by Race/Income
+```{r}
+plotlyOutput("plot3A")
+```
+
+```{r, context = "server"}
+observeEvent({
+  input$LOCATION3
+  input$TYPE 
+}, {
+  
+    data1 <- smc_pm25 %>% 
+    filter(
+       Location %in% c(input$LOCATION3),
+       type %in% c(input$TYPE)
+    )  
+      
+    chart1 <- data1 %>% 
+    ggplot() +
+    geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "stack"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Number of households",
+    fill="Group",
+    title = "PM2.5 exposure in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+        
+  
+   output$plot3A <- renderPlotly({
+    chart1 %>% 
+      ggplotly() %>% 
+      config(displayModeBar = F)
+  })
+  
+})
+```
+
+Column
+-------------------------------------
+### PART II. PM25 Exposure - Equity Analysis
+```{r}
+plotlyOutput("plot3B")
+```
+
+```{r, context = "server"}
+observeEvent({
+  input$LOCATION3
+  input$TYPE
+  
+}, {
+  
+    data2 <- smc_pm25 %>% 
+      filter(
+      Location %in% c(input$LOCATION3),
+      type %in% c(input$TYPE)
+    )  
+      
+    chart2 <- data2 %>% 
+    ggplot() +  
+    geom_bar(
+    aes(x = PM25_tier %>% factor
+                   (levels = c("0-2", "2-4",
+                              "4-6", "6-8",
+                              "8-10", "10-12",
+                              "12-14", "14+" )),
+        y =  estimate,
+        fill = group 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "PM2.5",
+    y = "Proportion of households",
+    fill="Group",
+    title = "PM2.5 exposure in San Mateo County"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+        
+  
+   output$plot3B <- renderPlotly({
+    chart2 %>% 
+      ggplotly() %>% 
+      config(displayModeBar = F)
+  })
+  
+})
+```
+
+Page 4
+================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+checkboxGroupInput(
+  inputId = "LOCATION4",
+  label = "LOCATION: ",
+  choices = c("inside","outside"),
+  selected = "outside", 
+  inline = FALSE,
+  width = NULL,
+  choiceNames = NULL,
+  choiceValues = NULL
+)
+
+```
+
+
+Column 
+---------------------------------
+### PART III. Suggested equity scores based on sensor count, white population, $75K-$100K population in San Mateo County
+
+```{r}
+leafletOutput("map4")
+```
+
+```{r, context = "server"}
+observeEvent({
+  input$LOCATION4
+}, {
+
+   sensor_placing <- 
+    smc_race_income_leftlet %>% 
+    filter(
+      Location == input$LOCATION4
+    ) 
+  
+   res_pal <- colorNumeric(
+   palette = "RdYlGn",
+   domain = sensor_placing$equity_score
+   )
+
+   output$map4 <- renderLeaflet({
+   leaflet() %>%
+   addTiles() %>%
+   addPolygons(data = sensor_placing,
+   fillColor = ~res_pal(equity_score),
+   color = "white",
+   opacity = 0.5,
+   fillOpacity = 0.5,
+   weight = 1,
+   label = "Sensor placing priority",
+   highlightOptions = highlightOptions(
+   weight = 2,
+   opacity = 1
+   ) ) %>%
+   addLegend(data = sensor_placing,
+   pal = res_pal,
+   values = ~equity_score,
+   title = "Suggested equity scores")
+
+     })
+  
+})
+
+```
+   
+   
+Page 5
+================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+checkboxGroupInput(
+  inputId = "LOCATION5",
+  label = "LOCATION: ",
+  choices = c("inside","outside"),
+  selected = "outside", 
+  inline = FALSE,
+  width = NULL,
+  choiceNames = NULL,
+  choiceValues = NULL
+)
+
+selectInput(
+  inputId = "RANK",
+  label = "TOP PRIORITY: ",
+  choices = c("1","5","10","20","30","40","50"),
+  selected = "1"
+)
+
+```
+
+
+Column 
+---------------------------------
+### PART III. Where to place the sensor according to the priority from the recommended equity scores in San Matero County
+
+```{r}
+leafletOutput("map5")
+```
+
+```{r, context = "server"}
+observeEvent({
+  input$RANK
+  input$LOCATION5
+}, {
+
+   data_placing <- 
+    smc_race_income_leftlet_Top %>% 
+    filter(
+      Location == input$LOCATION5,
+      Rank == input$RANK
+    ) 
+  
+   res_pal <- colorNumeric(
+   palette = "RdYlGn",
+   domain = data_placing$Top
+   )
+
+   output$map5 <- renderLeaflet({
+   leaflet() %>%
+   addTiles() %>%
+   addPolygons(data = data_placing,
+   fillColor = ~res_pal(Top),
+   color = "white",
+   opacity = 0.5,
+   fillOpacity = 0.5,
+   weight = 1,
+   label = "Recommended sensor locations",
+   highlightOptions = highlightOptions(
+   weight = 2,
+   opacity = 1
+   ) ) %>%
+   addLegend(data = data_placing,
+   pal = res_pal,
+   values = ~Top,
+   title = "Sensor placing locations<br>with top priorities")
+
+     })
+  
+})
+
+```
+   
+
+
+
