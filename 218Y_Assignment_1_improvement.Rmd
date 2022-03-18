@@ -1,0 +1,1349 @@
+---
+title: "218Y Assignment 1"
+author: "Lillian (Wei) Hung"
+date: "2022/01/09"
+output: html_document
+---
+
+Improvement includes 
+
+•	The analyses performed are focusing on the residential area R-LD.
+
+•	2013-2019 time plots for householder numbers and percentages by housing cost/housing burden groups for owners and renters are presented.
+
+•	The threshold of burden percentage over 30% is assumed to be severe in this assignment. 
+
+•	The total number and percentages of burdened households with severe housing burden, total housing burden, and total housing excess are calculated for owners and renters, respectively, in the period of 2013-2019.
+
+•	Mapping of Assessed Value, Net Value, Total Charge, Taxes for "Owner-occupied" R-LD zone in EPA, 2019 is included.
+
+•	Mapping of Assessed Value, Net Value, Total Charge, Taxes for "Renter-occupied" R-LD zone in EPA, 2019 is included.
+
+
+
+```{r   setup, include=FALSE   }
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r}
+options(tigris_use_cache = TRUE)
+library(censusapi)
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+library(readxl)
+library(writexl)
+library(plotly)
+library(devtools)
+library(ggplot2)
+library(mapboxapi)
+
+# Sys.setenv(CENSUS_KEY="59ba92e6096aa340bd6be1f3878bbfc2f03843e7")
+```
+
+```{r}
+# acs_vars_2019_5yr <- readRDS("acs_vars_2019_5yr.rds")
+```
+
+```{r}
+# Ownercosts <-
+#  getCensus(
+#    name = "acs/acs5",
+#   vintage = 2019,
+#   region = "place:*",
+#   regionin = "state:06",
+#   vars = "group(B25095)"
+# )
+# saveRDS(Ownercosts,"Ownercosts.rds")
+
+# Ownercosts <- readRDS("Ownercosts.rds")
+```
+
+```{r}
+# Tenure_Housingcosts_2013 <-
+#  getCensus(
+#   name = "acs/acs5",
+#  vintage = 2013,
+#  region = "place:*",
+#   regionin = "state:06",
+#  vars = "group(B25106)"
+#  ) 
+
+# saveRDS(Tenure_Housingcosts_2014,  "Tenure_Housingcosts_2014.rds")
+```
+
+```{r}
+# Tenure_Housingcosts_EPA_2013 <-
+#   Tenure_Housingcosts_2013  %>% 
+#  filter(
+#    place == 20956 
+# )  %>% 
+#     select(!c(state,place,NAME,GEO_ID) & !ends_with(c("EA","MA","M"))) %>%
+#      pivot_longer(
+#        cols = starts_with("B"),
+#        names_to = "name",
+#        values_to = "Householders"
+#  ) %>%
+#      left_join(
+#        acs_vars_2019_5yr %>% 
+#          select(name, label)
+#      ) %>% 
+#      separate(
+#        label,
+#        into = c(NA,NA,"Tenure"),
+#        sep = "!!"
+#      ) %>% 
+#      left_join(
+#        acs_vars_2019_5yr %>% 
+#          select(name, label)
+#      ) %>% 
+#      separate(
+#        label,
+#        into = c(NA,NA,NA,"Housingcosts"),
+#        sep = "!!"
+#      ) %>% 
+#      left_join(
+#        acs_vars_2019_5yr %>% 
+#          select(name, label)
+#      ) %>% 
+#      select(-name) %>% 
+#      separate(
+#        label,
+#        into = c(NA,NA,NA,NA,"Income_Percentage"),
+#        sep = "!!"
+#      )  %>% 
+#  mutate(
+#    Tenure1 = str_replace_all(Tenure,"-occupied housing units:", "")) %>%
+#  select(-Tenure) %>%
+#  mutate(
+#    Housingcosts1 = str_replace_all(Housingcosts,":", "") 
+# ) %>% 
+#  select(-Housingcosts) %>%
+#  rename (Tenure = Tenure1,
+#          Housingcosts =Housingcosts1) %>%
+#  filter(!is.na(Income_Percentage)) %>%
+#  mutate(Year = "2013")
+
+# saveRDS(Tenure_Housingcosts_EPA_2013,"Tenure_Housingcosts_EPA_2013.rds")
+```
+
+```{r}
+# Tenure_Housingcosts_EPA_full <-
+# rbind(
+# Tenure_Housingcosts_EPA_2013,
+# Tenure_Housingcosts_EPA_2014,
+# Tenure_Housingcosts_EPA_2015,
+# Tenure_Housingcosts_EPA_2016,
+# Tenure_Housingcosts_EPA_2017,
+# Tenure_Housingcosts_EPA_2018,
+# Tenure_Housingcosts_EPA_2019
+# )
+
+# saveRDS(Tenure_Housingcosts_EPA_full, "Tenure_Housingcosts_EPA_full.rds")
+```
+
+```{r}
+Tenure_Housingcosts_EPA_full <- 
+readRDS("Tenure_Housingcosts_EPA_full.rds")
+```
+
+```{r}
+Tenure_Housingcosts_total <-
+  Tenure_Housingcosts_EPA_full  %>% 
+  group_by(Year, Tenure) %>% 
+  summarize(
+  sum_Householders = sum(Householders,na.rm=T)
+)
+
+# saveRDS(Tenure_Housingcosts_total,"Tenure_Housingcosts_total.rds")
+```
+
+```{r}
+Tenure_Housingcosts_EPA_Percent <-
+Tenure_Housingcosts_EPA_full %>%
+left_join(
+    Tenure_Housingcosts_total
+) %>% mutate(
+  Percent= Householders/sum_Householders 
+) %>%
+ rename(Burden_Percentage=Income_Percentage)
+```
+
+Among all EPA owners in 2019, most householders have housing costs $75,000 or more. Within this group, over 1/2 householders have burden percentage < 20%. About 1/5 have burden percentage 20~29%. But, roughly 1/4 have burden percentage over 30%, which is considered to be severe here. For the other groups with housing costs less than $75,000, at least half of them consider their housing burden being severe.
+
+
+```{r}
+Tenure_Housingcosts_EPA_Percent %>% 
+  filter(Year==2019, Tenure== "Owner") %>%
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "Less than $20,000",
+              "$20,000 to $34,999",
+              "$35,000 to $49,999",
+              "$50,000 to $74,999",
+              "$75,000 or more"
+     )),
+        y =  Householders,
+        fill = Burden_Percentage
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householders",
+    title = "EPA Owner Householders by Housing Cost \nand Burden Percentage",
+  )+
+  coord_flip()
+   theme(
+    legend.position = "bottom"
+  )  +
+    guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+For the household group of housing cost < $20,000,
+over 80% have severe housing burden. For the owners with housing costs between $20,000 and $75,000, over 1/2 of them have severe housing burden. For the owners with housing costs $75,000 or over, about 1/4 severe housing burden.
+
+```{r}
+Tenure_Housingcosts_EPA_Percent %>% 
+  filter(Year==2019, Tenure== "Owner") %>%
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "Less than $20,000",
+              "$20,000 to $34,999",
+              "$35,000 to $49,999",
+              "$50,000 to $74,999",
+              "$75,000 or more"
+     )),
+        y =  Householders,
+        fill = Burden_Percentage
+      ),
+    stat = "identity",
+    position = "fill"   
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householders",
+    title = "EPA Owner Householders by Housing Cost \nand Burden Percentage",
+  )+
+  coord_flip()
+   theme(
+    legend.position = "bottom"
+  )  +
+    guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+```{r}
+Tenure_Housingcosts_EPA_Percent %>% 
+  filter(Year==2019, Tenure== "Owner") %>%
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "Less than $20,000",
+              "$20,000 to $34,999",
+              "$35,000 to $49,999",
+              "$50,000 to $74,999",
+              "$75,000 or more"
+     )),
+        y =  Percent,
+        fill = Burden_Percentage
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householder Percentages",
+    title = "EPA Owner Householder Percentages by Housing costs\nand Burden Percentages",
+  )+
+  coord_flip()
+   theme(
+    legend.position = "bottom"
+  )  +
+    guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+For owners, the percentages of severe housing burden vary with the levels of housing costs. The group with housing cost < $20,000 has the highest percentage of severe housing burden, followed by the group with with housing costs between $50,000 and $75,000.  
+
+```{r}
+Tenure_Housingcosts_EPA_Percent %>% 
+  filter(Year==2019, Tenure== "Owner") %>%
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "Less than $20,000",
+              "$20,000 to $34,999",
+              "$35,000 to $49,999",
+              "$50,000 to $74,999",
+              "$75,000 or more"
+     )),
+        y =  Percent,
+        fill = Burden_Percentage
+      ),
+    stat = "identity",
+     position = "fill"  
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householder Percentages",
+    title = "EPA Owner Householder Percentages by Housing costs and Burden Percentages",
+  )+
+  coord_flip()
+   theme(
+    legend.position = "bottom"
+  )  +
+    guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+Among all EPA renters in 2019, most householders have housing costs $75,000 or more. Within this group, about 40% householders have burden percentage < 20%. About 40% have burden percentage between 20~29%. But, there are roughly 10% have burden percentage over 30%. For the groups with housing costs less than $75,000 or more, about half of them consider their housing burden being severe.
+
+```{r}
+Tenure_Housingcosts_EPA_Percent %>% 
+  filter(Year==2019, Tenure== "Renter") %>%
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "Less than $20,000",
+              "$20,000 to $34,999",
+              "$35,000 to $49,999",
+              "$50,000 to $74,999",
+              "$75,000 or more"
+     )),
+        y =  Householders,
+        fill = Burden_Percentage
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householders",
+    title = "EPA Renter Householders by Housing Cost\nand Burden Percentage",
+  )+
+  coord_flip()
+   theme(
+    legend.position = "bottom"
+  )  +
+    guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+```{r}
+Tenure_Housingcosts_EPA_Percent %>% 
+  filter(Year==2019, Tenure== "Renter") %>%
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "Less than $20,000",
+              "$20,000 to $34,999",
+              "$35,000 to $49,999",
+              "$50,000 to $74,999",
+              "$75,000 or more"
+     )),
+        y =  Householders,
+        fill = Burden_Percentage
+      ),
+    stat = "identity",
+    position = "fill"   
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householders",
+    title = "EPA Renter Householders by Housing Cost\nand Burden Percentage",
+  )+
+  coord_flip()
+   theme(
+    legend.position = "bottom"
+  )  +
+    guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+```{r}
+Tenure_Housingcosts_EPA_Percent %>% 
+  filter(Year==2019, Tenure== "Renter") %>%
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "Less than $20,000",
+              "$20,000 to $34,999",
+              "$35,000 to $49,999",
+              "$50,000 to $74,999",
+              "$75,000 or more"
+     )),
+        y =  Percent,
+        fill = Burden_Percentage
+      ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householder Percentages",
+    title = "EPA Renter Householder Percentages by Housing costs\nand Burden Percentages",
+  )+
+  coord_flip()
+   theme(
+    legend.position = "bottom"
+  )  +
+    guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+```{r}
+Tenure_Housingcosts_EPA_Percent %>% 
+  filter(Year==2019, Tenure== "Renter") %>%
+  ggplot() +
+  geom_bar(
+    aes(x = Housingcosts %>% factor(levels 
+            =c(
+              "Less than $20,000",
+              "$20,000 to $34,999",
+              "$35,000 to $49,999",
+              "$50,000 to $74,999",
+              "$75,000 or more"
+     )),
+        y =  Percent,
+        fill = Burden_Percentage
+      ),
+    stat = "identity",
+     position = "fill"  
+  ) +
+  labs(
+    x = "Housingcosts",
+    y = "Householder Percentages",
+    title = "EPA Renter Householder Percentages by Housing costs\nand Burden Percentages",
+  )+
+  coord_flip()
+   theme(
+    legend.position = "bottom"
+  )  +
+    guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+
+```{r}
+Tenure_Housingcosts_EPA_Burden_year <-
+Tenure_Housingcosts_EPA_Percent %>%
+select(Year,Householders,Burden_Percentage,
+       Tenure) %>%
+  group_by(Year, Tenure,Burden_Percentage) %>% 
+  summarize(
+  Householders = sum(Householders,na.rm=T)
+ ) %>% 
+left_join(
+  Tenure_Housingcosts_total
+  ) %>% mutate(
+  Percent= Householders/sum_Householders 
+) 
+```
+
+For owners with housing burden 20~29%, the numbers of householders are in a decreasing trend in the periods of 2013~2019. The numbers of owners with housing burden <20% are increasing with years. The numbers of owners with severe housing burden only slightly decrease with year. More importantly, the numbers of owners with severe housing burden are generally more than the other groups with housing burden <20% and 20~29%. 
+
+For renters with housing burden <20% and 20~29%, the trend of renter numbers are increasing. The numbers of renters with severe housing burden are decreasing, but remain in the highest level among all groups.
+
+```{r}
+Tenure_Housingcosts_EPA_Burden_year  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Householders
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Burden_Percentage,
+      linetype = Tenure
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Householders",
+  title = "Householders by Burden Percentage in EPA,\nOwner-occupied vs. Renter-occupied,\n2013 to 2019", 
+color ="Burden Percentage" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("Owner", "Renter"))
+```
+
+The percentages of owners with housing burden <20% are increasing with years. The owner percentages with housing burden 20~29% and over 30% are decreasing with years. However, the owner percentages with severe housing burden is still around 40% in 2019.
+
+For renters with housing burden <20% and 20~29%, the trend of renter percentages are increasing. The percentages of renters with severe housing burden are decreasing from over 70% in 2013 to slightly below 60% in 2019. 
+
+```{r}
+Tenure_Housingcosts_EPA_Burden_year  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Percent
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Burden_Percentage,
+      linetype = Tenure
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Householder Percentages",
+  title = "Householder Percentages by Burden Percentage in EPA,\nOwner-occupied vs. Renter-occupied,\n2013 to 2019", 
+color ="Burden Percentage" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("Owner", "Renter"))
+```
+
+```{r}
+Tenure_Housingcosts_EPA_Housingcosts_year <-
+Tenure_Housingcosts_EPA_Percent %>%
+select(Year,Householders,Housingcosts,
+       Tenure) %>%
+  group_by(Year, Tenure,Housingcosts) %>% 
+  summarize(
+  Householders = sum(Householders,na.rm=T)
+ ) %>% 
+left_join(
+  Tenure_Housingcosts_total
+  ) %>% mutate(
+  Percent= Householders/sum_Householders 
+) 
+``` 
+
+It seems that for higher housing costs, the numbers of owner-occupied households tend to be more. Especially, the number of owners with housing costs $75,000 or over stay in almost the highest level among all groups. The number of owners with housing costs <$75,000 tend to remain in lower level as compared to the renters.
+
+The numbers of renter-occupied households in most categories of housing costs are generally more than the owner-occupied groups. The number of renter householders with housing costs $75,000 or more are lower in 2013, but rapidly rise and reach to almost the same level as owners. 
+
+```{r}
+Tenure_Housingcosts_EPA_Housingcosts_year  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Householders
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housingcosts,
+      linetype = Tenure
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Householders",
+  title = "Householders by Housingcosts in EPA,\nOwner-occupied vs. Renter-occupied,\n2013 to 2019", 
+color ="Housingcosts" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("Owner", "Renter"))
+```
+
+As to householder percentages, it seems that there is generally a mild decreasing trend for most groups of housing cost categories. For higher housing costs, the percentages of owner-occupied households also tend to be higher.  For owners with housing costs $75,000 or over, the householder percentages remain in the highest level, which is only slightly less than 60%. 
+
+For Renters with housing costs $75,000 or more, the householder percentage starts with a lower value roughly 20% in 2013, but rises to about 40% in 2019. For the other Renter groups with housing costs <$75,000, the householder percentages remain about 20%. 
+
+```{r}
+Tenure_Housingcosts_EPA_Housingcosts_year  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Percent
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housingcosts,
+      linetype = Tenure
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Householder Percentages",
+  title = "Householder Percentages by Housingcosts in EPA,\nOwner-occupied vs. Renter-occupied,\n 2013 to 2019", 
+color ="Housingcosts" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("Owner", "Renter"))
+```
+
+```{r}
+burden_threshold <- 0.3
+
+Tenure_Housingcosts_EPA_Percent_Burden <-
+  Tenure_Housingcosts_EPA_Percent  %>%
+  mutate(
+     Cost = ifelse(
+      Housingcosts == "Less than $20,000", 10000,ifelse(
+      Housingcosts == "$20,000 to $34,999", 27500, ifelse(
+      Housingcosts == "$35,000 to $49,999", 42500, ifelse(  
+      Housingcosts == "$50,000 to $74,999", 62500, 87500   
+  ) ) ) ) ) %>%
+  mutate(
+      Mid_Burden_Percentage = ifelse(
+      Burden_Percentage == "Less than 20 percent", 10,ifelse(
+      Burden_Percentage == "20 to 29 percent", 25, 40
+  ) ) ) %>%
+  mutate(
+    Income=Cost/(Mid_Burden_Percentage/100),
+    Total_income=Income*Householders,
+    income_threshold = Income*burden_threshold,
+    Burden= Cost-income_threshold,
+    Total_Burden=Burden*Householders
+   )  %>% 
+  mutate(
+    Burdened = ifelse(
+      Burden >0, Householders,0),
+    Excess = ifelse(
+        Burden <0,  Total_Burden,0),  
+    Total_Burden = ifelse(
+      Burden >0,  Total_Burden,0)
+  )
+```
+
+The total number and percentages of burdened households with severe housing burden, total housing burden, and excess are calculated for owners and renters, respectively, as follows.
+
+The burdened percentages for owners are between 40.8% (2016) ~ 47.8% (2014). While for the renters, the burdened percentages go between 72.1% (2013) ~ 54.9% (2018).
+
+```{r}
+Tenure_Housingcosts_EPA_Percent_Burden_sum <-
+  Tenure_Housingcosts_EPA_Percent_Burden  %>% 
+  group_by(Year,Tenure) %>% 
+  summarize(
+    Burdened = sum(Burdened),
+    Householders = sum(Householders),
+    Total_Burden = sum(Total_Burden),
+    Excess = sum(Excess)
+  ) %>% 
+  mutate(
+    Burdened_perc = Burdened/Householders
+)
+```
+
+```{r}
+Tenure_Housingcosts_EPA_Percent_Burden_sum  
+```
+
+The numbers of householders for renters are always much higher than for the owners.
+
+```{r}
+Tenure_Housingcosts_EPA_Percent_Burden_sum  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Householders 
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Tenure
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Householders",
+  title = "Householders in EPA,\nOwner-occupied vs. Renter-occupied,\n 2013 to 2019", 
+color ="Tenure" ) 
+```
+
+The numbers of burdened householders for renters are always much higher than for the owners and have a decreasing trend with year.
+
+```{r}
+Tenure_Housingcosts_EPA_Percent_Burden_sum  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Burdened 
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Tenure
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Burdened Householders",
+  title = "Burdened Householders in EPA,\nOwner-occupied vs. Renter-occupied,\n 2013 to 2019", 
+color ="Tenure" ) 
+```
+
+The total housing burden for renters is also much higher than for the owners, which reaches its peak in 2017.  
+
+```{r}
+Tenure_Housingcosts_EPA_Percent_Burden_sum  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Total_Burden 
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Tenure
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = " Total Burden",
+  title = " Total Burden for Householders in EPA,\nOwner-occupied vs. Renter-occupied,\n 2013 to 2019", 
+color ="Tenure" ) 
+```
+
+The burdened householder percentages decreases with year both for owners and renters. The burdened householder percentages for owners are about twice of the percentages for renters in 2016 and become about 1.5 times in 2019.
+
+```{r}
+Tenure_Housingcosts_EPA_Percent_Burden_sum  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y =  Burdened_perc 
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Tenure
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Burdened Householder Percentage",
+  title = "Burdened Householder percentage in EPA,\nOwner-occupied vs. Renter-occupied,\n 2013 to 2019", 
+color ="Tenure" ) 
+```
+
+Part II
+-- San Mateo County Property data (exemption)
+
+```{r}
+# install.packages("remotes",force = TRUE)
+# remotes::install_github("yonghah/esri2sf")
+
+library(esri2sf)
+```
+
+```{r}
+epa_zoning <- esri2sf("https://services8.arcgis.com/0IC8hha3hgQkmGoa/arcgis/rest/services/EastPaloAltoZoning_2021_WFL1/FeatureServer/1")
+
+smc_exemption <- read_csv("https://datahub.smcgov.org/api/views/pmvw-bs84/rows.csv?accessType=DOWNLOAD")
+
+```
+
+Mapping of EPA zoning
+
+```{r}
+mapview(epa_zoning)
+```
+
+```{r}
+# epa_exemption <- smc_exemption %>% 
+#   mutate(
+#    APN = `Parcel Number` %>% 
+#      str_replace_all("-","")
+#  ) %>% 
+#  filter(APN %in% epa_zoning$APN) %>% 
+#  left_join(epa_zoning) %>% 
+#  st_as_sf() 
+
+# saveRDS(epa_exemption, "epa_exemption.rds")
+
+epa_exemption <-
+readRDS("epa_exemption.rds")
+```
+
+```{r}
+# EPA_exemption  <- epa_exemption  %>% 
+#    mutate (
+#    Owner= ifelse(
+#      Exemption == "7000", 1, ifelse(
+#      Exemption == "5600", 1, 0)
+#  )) %>%
+#  rename (Assessed_Value = 'Assessed Value',
+#          Net_Value = 'Net Value',
+#          Total_Charge = 'Total Charge', 
+#          Fiscal_Year='Fiscal Year'   
+#   )  %>%
+#   mutate (
+#    Year= ifelse(
+#      Fiscal_Year == "2015/2016", 2016, ifelse(
+#      Fiscal_Year == "2016/2017", 2017, ifelse(  
+#      Fiscal_Year == "2017/2018", 2018, 2019)
+#  ))) %>%
+# mutate (
+#    Housing_Type = ifelse(
+#      Owner == 1, "Owner", "Renter")
+#  )  
+
+
+
+# saveRDS(EPA_exemption, "EPA_exemption.rds")
+
+ EPA_exemption <-
+   readRDS("EPA_exemption.rds")
+```
+
+Mapping of Owner distribution (with exemption) for R-LD zone in EPA, 2019  
+
+```{r}
+#  EPA_exemption_RLD  <-
+#   EPA_exemption   %>%
+#   filter(New_Zone == "R-LD")
+
+
+# saveRDS(EPA_exemption_RLD, "EPA_exemption_RLD.rds")
+
+EPA_exemption_RLD <-
+  readRDS("EPA_exemption_RLD.rds")
+
+```
+
+Mapping of all zones (in yellow), all owner-occupied zones (in green), and owner-occupied RLD zone (in red) in EAP, 2019  
+
+```{r}
+leaflet() %>%
+  addProviderTiles(provider = providers$CartoDB.Positron) %>%
+  addPolygons(
+    data = EPA_exemption  %>%
+      filter(Year == "2019"),
+    fillColor = "yellow",
+    color = "black",
+    weight = 0.5
+   )  %>%
+  addPolygons(
+    data = EPA_exemption %>%
+      filter(Year== "2019") %>%
+      filter(Exemption  %in% c(5600,7000)),
+    fillColor = "green",
+    color = "black",
+    weight = 0.5,
+    fillOpacity = 1
+   )  %>%
+  addPolygons(
+    data = EPA_exemption_RLD  %>%
+    filter(Year== "2019") %>%
+    filter(Exemption  %in% c(5600,7000)),      
+    fillColor = "red",
+    color = "black",
+    weight = 0.5
+   ) 
+```
+
+```{r}
+EPA_exemption_RLD_Owner  <-
+   EPA_exemption_RLD   %>%
+   filter(Owner == "1")
+
+EPA_exemption_RLD_Renter <-
+  EPA_exemption_RLD %>%
+  filter(Owner== "0")
+
+EPA_exemption_RLD_Owner_2019 <-
+  EPA_exemption_RLD %>%
+  filter(Owner== "1", Year == "2019")
+
+EPA_exemption_RLD_Renter_2019 <-
+  EPA_exemption_RLD %>%
+  filter(Owner=="0", Year == "2019")
+```
+
+```{r}
+# EPA_exemption_average <-
+#  EPA_exemption_RLD %>% 
+#   group_by(Year, Housing_Type) %>% 
+#   summarize(
+#    Average_Assessed_Value = mean(Assessed_Value, na.rm=T),
+#    Average_Net_Value = mean(Net_Value, na.rm=T),
+#    Average_Total_Charge = mean(Total_Charge, na.rm=T),
+#    Average_Taxes = mean(Taxes, na.rm=T),
+#    Average_Acres= mean(Acres, na.rm=T),
+#    APN_AREA_mean = mean(APN_AREA, na.rm=T),
+#    Shape_Area_mean= mean(Shape__Area, na.rm=T),
+#    Shape_Length_mean =mean(Shape__Length, na.rm=T),
+#    Owner_count=sum(Owner, na.rm=T),
+#    count = n()
+#   ) %>% st_drop_geometry()
+
+# saveRDS(EPA_exemption_average, "EPA_exemption_average.rds")
+
+EPA_exemption_average <-
+  readRDS("EPA_exemption_average.rds")
+
+```
+
+```{r}
+EPA_exemption_count <-
+  EPA_exemption_average %>%
+  group_by(Year) %>%
+  summarize(
+    total_count = sum(count, na.rm=T)
+ ) 
+```
+
+```{r}
+EPA_exemption_average_percent <-
+EPA_exemption_average %>%
+  left_join(EPA_exemption_count) %>%
+  mutate(
+  Housing_Type_Percent=count/total_count  
+  ) 
+```
+
+Mapping of Assessed Value, Net Value, Total Charge, Taxes for "Owner-occupied" R-LD zone in EPA, 2019 is as follow. 
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = EPA_exemption_RLD_Owner_2019 %>% 
+    pull(Assessed_Value)
+)
+pal2 <- colorNumeric(
+  palette = "Blues",
+  domain = EPA_exemption_RLD_Owner_2019 %>% 
+  pull(Net_Value)
+)
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = EPA_exemption_RLD_Owner_2019 %>% 
+    pull(Total_Charge)
+)
+pal4 <- colorNumeric(
+  palette = "Greens",
+  domain = EPA_exemption_RLD_Owner_2019 %>% 
+  pull(Taxes)
+)
+```
+
+```{r}
+ EPA_exemption_RLD_Owner_2019   %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(Assessed_Value),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~Assessed_Value %>% signif(2),
+    group = "Assessed Value"
+  )  %>% 
+  addPolygons(
+    fillColor = ~pal2(Net_Value),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~Net_Value %>% signif(2),
+    group = "Net Value"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal3(Total_Charge),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~Total_Charge %>% signif(2),
+    group = "Total Charge"
+  )  %>% 
+  addPolygons(
+    fillColor = ~pal4(Taxes),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~Taxes %>% signif(2),
+    group = "Taxes"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~Assessed_Value,
+     title = "2018/2019  Assessed Value <br>for Owner-occupied R-LD Property <br>in EPA",
+    group = "Assessed Value"
+  ) %>%
+  addLegend(
+    pal = pal2,
+    values = ~Net_Value,
+    title = "2018/2019  Net Value <br>for Owner-occupied R-LD Property <br>in EPA",
+    group = "Net Value"
+) %>%
+  addLegend(
+    pal = pal3,
+    values = ~Total_Charge,
+     title = "2018/2019  Total Charge <br>for Owner-occupied R-LD Property <br>in EPA",
+    group = "Total Charge"
+  ) %>%
+  addLegend(
+    pal = pal4,
+    values = ~Taxes,
+    title = "2018/2019  Taxes <br>for Owner-occupied R-LD Property <br>in EPA",
+    group = "Taxes"
+) %>%
+  addLayersControl(
+    overlayGroups = c("Assessed Value","Net Value","Total Charge","Taxes"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Assessed Value", position = "bottomright") %>%
+  hideGroup("Net Value") %>%
+  hideGroup("Total Charge") %>%
+  hideGroup("Taxes") 
+```
+
+Mapping of Assessed Value, Net Value, Total_Charge, Taxes for "Renter-occupied" R-LD zone in EPA, 2019.
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = EPA_exemption_RLD_Renter_2019 %>% 
+    pull(Assessed_Value)
+)
+pal2 <- colorNumeric(
+  palette = "Blues",
+  domain = EPA_exemption_RLD_Renter_2019 %>% 
+  pull(Net_Value)
+)
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = EPA_exemption_RLD_Renter_2019 %>% 
+    pull(Total_Charge)
+)
+pal4 <- colorNumeric(
+  palette = "Greens",
+  domain = EPA_exemption_RLD_Renter_2019 %>% 
+  pull(Taxes)
+)
+```
+
+```{r}
+ EPA_exemption_RLD_Renter_2019   %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(Assessed_Value),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~Assessed_Value %>% signif(2),
+    group = "Assessed Value"
+  )  %>% 
+  addPolygons(
+    fillColor = ~pal2(Net_Value),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~Net_Value %>% signif(2),
+    group = "Net Value"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal3(Total_Charge),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~Total_Charge %>% signif(2),
+    group = "Total Charge"
+  )  %>% 
+  addPolygons(
+    fillColor = ~pal4(Taxes),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~Taxes %>% signif(2),
+    group = "Taxes"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~Assessed_Value,
+     title = "2018/2019  Assessed Value <br>for Renter-occupied R-LD Property <br>in EPA",
+    group = "Assessed Value"
+  ) %>%
+  addLegend(
+    pal = pal2,
+    values = ~Net_Value,
+    title = "2018/2019  Net Value <br>for Renter-occupied R-LD Property <br>in EPA",
+    group = "Net Value"
+) %>%
+  addLegend(
+    pal = pal3,
+    values = ~Total_Charge,
+     title = "2018/2019  Total Charge <br>for Renter-occupied R-LD Property <br>in EPA",
+    group = "Total Charge"
+  ) %>%
+  addLegend(
+    pal = pal4,
+    values = ~Taxes,
+    title = "2018/2019  Taxes <br>for Renter-occupied R-LD Property <br>in EPA",
+    group = "Taxes"
+) %>%
+  addLayersControl(
+    overlayGroups = c("Assessed Value","Net Value","Total Charge","Taxes"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Assessed Value", position = "bottomright") %>%
+  hideGroup("Net Value") %>%
+  hideGroup("Total Charge") %>%
+  hideGroup("Taxes") 
+```
+
+The percentage of owners in EPA decreases from 46% (2016) to 43% (2019). While the percentage of renters in EPA increase from about 54% (2016) to 57% (2019).
+
+```{r}
+EPA_exemption_average_percent  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Housing_Type_Percent
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Housing Type Percent",
+  title = "Housing Type Percent by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+The average assessed values for both owners and renters increase with year. The average assessed values for renters are always higher than for owners.
+
+```{r}
+EPA_exemption_average_percent  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Average_Assessed_Value
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Average Assessed Value",
+  title = "Average Assessed Value by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+Average net values for both owners and renters increase with year. The Average net Values for renters are always higher than for owners.
+
+```{r}
+EPA_exemption_average_percent  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Average_Net_Value
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Average Net Value",
+  title = "Average Net Value by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+The average total charge for both owners and renters increase with year. The average total charge for renters are always higher than for owners.
+
+```{r}
+EPA_exemption_average_percent  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Average_Total_Charge
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Average Total Charge",
+  title = "Average Total Charge by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+The average taxes for both owners and renters increase with year. The average taxes for renters are always higher than for owners.
+
+```{r}
+EPA_exemption_average_percent  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = Average_Taxes
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Average Taxes",
+  title = "Average Taxes by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+```{r}
+# EPA_exemption_RLD_descrip <-
+# EPA_exemption_RLD %>% 
+#  group_by(Housing_Type, Year) %>% 
+#  summarize(
+#  sum_Assessed_Value=sum(Assessed_Value,na.rm=T),
+#  sum_Net_Value=sum(Net_Value,na.rm=T),
+#  sum_Taxes=sum(Taxes,na.rm=T),
+#  sum_Total_Charge=sum(Total_Charge,na.rm=T)
+# ) %>% 
+#  st_drop_geometry()
+  
+# saveRDS(EPA_exemption_RLD_descrip,"EPA_exemption_RLD_descrip.rds")
+```
+
+The Total Assessed Value, Total Net Value, Total taxes and Total charge for owners and renters in the period of 2016~2019 are calculated as follows.
+
+```{r}
+EPA_exemption_RLD_descrip <-
+ readRDS("EPA_exemption_RLD_descrip.rds")
+```
+
+```{r}
+EPA_exemption_RLD_descrip
+```
+
+The total assessed values for both owners and renters increase with year. The total assessed values for renters are always higher than for owners and rise greatly after 2017.
+
+```{r}
+EPA_exemption_RLD_descrip  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = sum_Assessed_Value
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Total Assessed Value",
+  title = "Total Assessed Value by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+The total net values for both owners and renters increase with year. The total net values for renters are always higher than for owners and rise greatly after 2017.
+
+```{r}
+EPA_exemption_RLD_descrip %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = sum_Net_Value
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Total Net Value",
+  title = "Total Net Value by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+
+The sum of total charge for both owners and renters increase with year. The sum of total charge for renters are always higher than for owners and rise greatly after 2017.
+
+```{r}
+EPA_exemption_RLD_descrip  %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = sum_Total_Charge
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Sum of Total Charge",
+  title = "Sum of Total Charge by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+The total taxes for both owners and renters increase with year. The total taxes for renters are always higher than for owners and rise greatly after 2017.
+
+```{r}
+EPA_exemption_RLD_descrip %>% 
+   ggplot(
+    aes(
+      x = Year %>% as.numeric(),
+      y = sum_Taxes
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Housing_Type
+     ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Total Taxes",
+  title = "Total Taxes by Housing Type in R-LD zone of EPA,\n 2016 to 2019", 
+color ="Housing Type" )
+```
+
+The conclusions are summarized as follows.
+
+PART I: 
+
+(1)	For owners, housing burden percentages vary across the levels of the housing costs. About ¼ of owners with housing costs $75,000 or more considered their housing burden being severe. For the other categories of housing costs less than $75,000, there are about ½ owners having severe housing burden. For renters with housing costs $75,000 or more, about 10% have severe housing burden, which is lower as compared with owners.  But for the other renter groups with housing costs below $75,000, over 70% of them have severe housing burden.  Hence, the housing burden in EPA is a serious issue for owners and, in particularly, for renters.
+
+(2)	For both owners and renters, the numbers of householders with severe housing burden remain in the high level as compared with the  groups with lower housing burden, which implying the severity of the housing burden condition in EPA. Even though the owner and renter percentages with severe housing burden are decreasing with years in the period of 2013~2019, still around 40% of owners and 60% of renters are experiencing severe housing burden in 2019.
+
+(3)	Numbers of renters in most categories of housing costs are generally higher than the owner groups. For Renters with housing costs $75,000 or more, the householder percentage rises up from 20% in 2013 to 40% in 2019, implying more renters are suffering from really high housing costs with years. Owners with housing costs $75,000 or more remain in the highest level of householder percentages about 60%, signifying that owners suffer from high housing costs throughout the period of 2013~2019.
+
+(4)	Even though the burdened householder percentages decreases with year both for owners and renters, the percentages of burdened households computed with severe housing burden in 2019 are still 41.7% for owners and 57.8% for renters, which are considered to be in high level. The burdened householder percentages for owners are always higher than the renters, meaning the much more owners are suffering from housing burden than the renters.
+
+
+PART II:
+
+(1)	Based on the map, it shows that the owners with exemption $7000 or $5600 scatter pretty much homogeneously in the EPA. 
+
+(2) The percentage of owners in EPA decreases with year. While the percentage of renters in EPA increase with year. It seems that more residents in EPA are giving up owning houses. Instead of owning, residents tend to rent houses to reduce the housing burden. But, as we mentioned earlier in PART I, the housing burden for renters are still high. 
+
+(3) Based on the map for Owner-occupied property, generally speaking, the distribution of Assessed Value, Net Value, Total Charge, Taxes are quite homogeneous. Only some small areas in the north and center of EPA have higher value of Assessed Value, Net Value, Total Charge, Taxes. For the map of Renter-occupied property, there is a specific location in the southern center of EPA having the highest Assessed Value. Some locations in the center EPA have higher Net Value and Taxes.
+
+(4)	The average total charge for both owners and renters increase with year. Especially, the average total charge for renters are always higher than for owners, which may be one of the causes for high housing burden. 
+
+(5) The average assessed values,  average net values and the average taxes for both owners and renters have similar pattern and trend as the average total charge.
+
+(6)	All the total assessed values, total net values, total taxes and total charges for both owners and renters have similar pattern and trend which are increasing with year. The total assessed values, total net values, total taxes and total charges for renters are always higher than for owners and rise greatly after 2017. 
+
+(7) For 2019, the the total assessed values, total net values, total taxes and total charges for renters are roughly 1.5 times of the values for owners. This finding implies the increasing housing burden for owners and, particularly, renters.  
+
+Overall speaking, the EPA does have a problem in high property price which may cause people to rent a house instead of buying. Even though less than 40% of people own properties in EPA, the house burden is high even for householders with high income. It seems to me that the OPA is essential especially to the renters. 
+
+
+
+
+
