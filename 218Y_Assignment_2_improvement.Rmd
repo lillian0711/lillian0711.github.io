@@ -1,0 +1,2409 @@
+---
+title: "218Y Assignment 2"
+author: "Lillian (Wei) Hung"
+date: "2022/01/20"
+output: html_document
+---
+
+```{r   setup, include=FALSE   }
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+Improvement of the assignment includes the following:
+
+PART I.
+
+(1) The “negative amenity” of the wastewater plant is assignment to be a negative value for comparative analysis. 
+
+(2) For comparative analysis, the difference is defined as subtracting the score "without" convenience store by the score "with" convenience store. Therefore, the "negative" difference means the reduced magnitude for score due to no convenience store. The mode-specific geographic mapping for changes in completeness scores after removing convenience store is presented.
+
+(3) Similarly, as comparing the difference of completeness scores "with" and "without" negative amenity (wastewater plant), the difference is defined as subtracting the score "without" negative amenity by the score "with" negative amenity. Therefore, the "positive" difference means the increase in completeness scores due to no negative amenity. The mode-specific geographic mapping for changes in completeness scores after removing negative amenity is presented.
+
+(4) The histogram distributions of the completeness scores for comparative analysis among three scenarios including communities with convenience store & negative amenity, no convenience store, no negative amenity are presented. 
+
+PART II.
+
+Mode-specific equity analysis of completeness scores (in block group levels) by income is presented.
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+library(censusapi)
+library(devtools)
+library(ggplot2)
+library(mapboxapi)
+
+
+
+
+# install_github('walkerke/tigris', force = TRUE )
+# Sys.setenv(CENSUS_KEY="59ba92e6096aa340bd6be1f3878bbfc2f03843e7")
+```
+
+```{r}
+# mb_access_token("pk.eyJ1Ijoic3VlbGluZyIsImEiOiJja3lwYmtjMzEwOGd3MzFtZGg5N3ExeWdvIn0.1M4E1IIYWMGj0wu1ZYu46g",install=T)
+
+# readRenviron("~/.Renviron")
+```
+
+```{r}
+path <- "G:/Shared drives/SFBI/Data Library/NHTS/nhts17-caltrans-tsdc-download/"
+
+survey_household <- read_csv(paste0(path,"survey_household.csv"))
+
+survey_person <- read.csv(paste0(path,"survey_person.csv")) # read_csv() appeared to trigger an error because of a formatting issue, so my second attempt is always the base R version of this function, read.csv(). It generally gives the same result.
+
+survey_trip <- read_csv(paste0(path,"survey_trip.csv"))
+
+survey_person_weights_7day <- read_csv(paste0(path,"survey_person_weights_7day.csv"))
+
+nhts_lookup <- read_excel(
+  paste0(path,"data_elements.xlsx"), 
+  sheet = "Value Lookup"
+)
+
+survey_location <- read.csv(paste0(path,"survey_location.csv")) 
+
+```
+# PART I
+```{r}
+pois <- st_read("G:/Shared drives/SFBI/Data Library/OSM/gis_osm_pois_a_free_1.shp")
+```
+
+```{r}
+# pois_summary <- pois %>% 
+#  st_drop_geometry() %>% 
+# group_by(fclass) %>% 
+#  count() %>% 
+#  arrange(desc(n))
+
+# pois_summary
+```
+
+Map for Points of Interest (Amenities) in San Mateo County 
+
+```{r}
+# smc_boundary <- counties("CA") %>% 
+#  filter(NAME == "San Mateo") %>% 
+#  st_transform(st_crs(pois))
+# save(smc_boundary,"smc_boundary.rds")
+
+# saveRDS(smc_boundary,"smc_boundary.rds")
+smc_boundary <- readRDS("smc_boundary.rds")  
+
+# will take longer but handles larger POIs better
+# smc_pois <- pois %>% 
+#  .[smc_boundary,] %>% 
+#  rename(amenity = fclass)
+
+# faster
+smc_pois <- pois %>% 
+  st_centroid() %>% 
+  .[smc_boundary,] %>% 
+  rename(amenity = fclass)
+
+mapview(smc_pois, zcol = "amenity")
+```
+
+Map for selected Points of Interest (Amenities) in San Mateo County
+
+```{r}
+pois_filter <- pois %>% 
+  rename(amenity = fclass) %>% 
+  filter(amenity %in% c(
+    "park",
+    "convenience",
+    "restaurant",
+    "supermarket",
+    "library",
+    "wastewater_plant"
+  ))
+
+mapview(pois_filter, zcol = "amenity")
+```
+
+```{r}
+# pois_filter_no_wastewater <- pois %>% 
+#  rename(amenity = fclass) %>% 
+#  filter(amenity %in% c(
+#    "park",
+#    "convenience",
+#    "restaurant",
+#    "supermarket",
+#    "library"
+#  ))
+```
+
+```{r}
+# pois_filter_no_convenience <- pois %>% 
+#  rename(amenity = fclass) %>% 
+#  filter(amenity %in% c(
+#    "park",
+#    "restaurant",
+#    "supermarket",
+#    "library",
+#    "wastewater_plant"
+#  ))
+```
+
+```{r}
+# saveRDS(pois_filter, "pois_filter.rds")
+# saveRDS(pois_filter_no_wastewater, "pois_filter_no_wastewater.rds")
+
+# saveRDS(pois_filter_no_convenience, "pois_filter_no_convenience.rds")
+```
+
+```{r}
+pois_filter <- readRDS("pois_filter.rds")
+
+pois_filter_no_wastewater  <- readRDS("pois_filter_no_wastewater.rds")
+
+pois_filter_no_convenience <- readRDS("pois_filter_no_convenience.rds")
+```
+
+```{r}
+# smc_cbgs <- block_groups("CA","San Mateo", progress_bar = F)
+
+# saveRDS(smc_cbgs,"smc_cbgs.rds")
+smc_cbgs <- readRDS("smc_cbgs.rds")
+```
+
+```{r}
+# Redwood_boundary <- places("CA",progress_bar = F) %>% 
+#   filter(NAME == "Redwood City")
+# saveRDS(Redwood_boundary, "Redwood_boundary.rds")
+Redwood_boundary <- readRDS("Redwood_boundary.rds")
+```
+
+Map for Redwood City block groups
+
+```{r}
+Redwood_cbgs <- smc_cbgs %>% 
+  st_centroid() %>% 
+  .[Redwood_boundary, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(smc_cbgs %>% select(GEOID)) %>% 
+  st_as_sf()
+
+mapview(Redwood_cbgs)
+```
+
+```{r}
+# saveRDS(Redwood_cbgs, "Redwood_cbgs.rds")
+Redwood_cbgs <- readRDS("Redwood_cbgs.rds")
+```
+
+```{r}
+# isochrones <- c("walking","cycling","driving") %>% 
+#  map_dfr(function(x){
+    
+#    mb_isochrone(
+#      Redwood_cbgs,
+#      profile = x,
+#      time = c(5,10,15)
+#    ) %>% 
+#      mutate(mode = x)
+    
+#  })
+```
+
+```{r}
+# saveRDS(isochrones, "Redwood_isochrones.rds")
+isochrones <- readRDS("Redwood_isochrones.rds")
+```
+
+```{r}
+ access_raw <- isochrones %>% 
+  st_make_valid() %>%
+  st_join(pois_filter) %>% 
+  filter(!is.na(osm_id)) %>% 
+  st_drop_geometry()
+```
+
+```{r}
+ access_raw_no_wastewater <- isochrones %>% 
+  st_make_valid() %>%
+  st_join(pois_filter_no_wastewater) %>% 
+  filter(!is.na(osm_id)) %>% 
+  st_drop_geometry()
+```
+
+```{r}
+ access_raw_no_convenience <- isochrones %>% 
+  st_make_valid() %>%
+  st_join(pois_filter_no_convenience) %>% 
+  filter(!is.na(osm_id)) %>% 
+  st_drop_geometry()
+```
+
+```{r}
+amenity_preference <- data.frame(
+  amenity = c("park","convenience","restaurant","supermarket","library", "wastewater_plant"),
+  amenity_value = c(
+    0.7,
+    1.0,
+    0.5,
+    0.9,
+    0.8,
+   -1.0
+  ),
+  amenity_quantity = c(
+    2,
+    5,
+    30,
+    1,
+    1,
+    10
+  )
+) %>% 
+  mutate(
+    amenity_decay = -log(0.5)/amenity_quantity
+  )
+```
+
+```{r}
+mode_preference <- data.frame(
+  mode = c(
+    "walking",
+    "cycling",
+    "driving"
+  ),
+  mode_value = c(
+    0.7,
+    0.3,
+    1.0
+  ),
+  mode_reasonable = c(
+    15,
+    10,
+    20
+  )
+) %>% 
+  mutate(
+    mode_decay = -log(0.5)/mode_reasonable
+  )
+```
+
+```{r}
+ complete_temp_I <- access_raw  %>% 
+  left_join(
+    amenity_preference,
+    by = "amenity"
+  ) %>% 
+  left_join(
+    mode_preference,
+    by = "mode"
+  ) %>% 
+  group_by(id,mode,amenity) %>% 
+  arrange(time) %>% 
+  mutate(
+    amenity_rank = row_number() - 1
+  ) %>% 
+  ungroup()
+
+saveRDS(complete_temp_I,"complete_temp_I.rds")
+```
+
+```{r}
+complete_baseline_I <- data.frame(
+  amenity = amenity_preference$amenity %>% 
+    rep(amenity_preference$amenity_quantity)
+) %>% 
+  left_join(
+    amenity_preference,
+    by = "amenity"
+  ) %>% 
+  group_by(amenity) %>% 
+  mutate(
+    amenity_rank = row_number() - 1
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    score = amenity_value * exp(-amenity_rank * amenity_decay) * 0.5
+  )
+
+saveRDS(complete_baseline_I,"complete_baseline_I.rds")
+```
+
+```{r}
+ complete_modes_I <- complete_temp_I %>% 
+  mutate(
+    score = amenity_value * exp(-amenity_rank * amenity_decay) * exp(-time * mode_decay)
+  ) %>% 
+  group_by(id, mode) %>% 
+  arrange(desc(score)) %>% 
+  filter(!duplicated(osm_id)) %>%
+  summarize(
+    score = sum(score,na.rm=T)/sum(complete_baseline_I$score)
+  )
+
+saveRDS(complete_modes_I,"complete_modes_I.rds")
+```
+
+```{r}
+ complete_total_I <- complete_temp_I %>% 
+  mutate(
+    score = amenity_value * exp(-amenity_rank * amenity_decay) * mode_value * exp(-time * mode_decay)
+  ) %>% 
+  group_by(id) %>% 
+  arrange(desc(score)) %>% 
+  filter(!duplicated(osm_id)) %>% 
+  summarize(
+    score = sum(score, na.rm =T) /sum(complete_baseline_I$score)
+  ) %>% 
+  mutate(mode = "total")
+
+saveRDS(complete_total_I,"complete_total_I.rds")
+```
+
+```{r}
+ complete_I <- rbind(
+  complete_modes_I,
+  complete_total_I
+ )
+
+saveRDS(complete_I,"complete_I.rds")
+```
+
+```{r}
+ complete_map_I <- complete_I %>% 
+  pivot_wider(
+    names_from = "mode",
+   values_from = "score"
+   ) %>%
+ cbind(Redwood_cbgs %>% select(GEOID)) %>%
+ st_as_sf()
+
+saveRDS(complete_map_I,"complete_map_I.rds")
+```
+
+```{r}
+complete_temp_I_no_convenience  <- access_raw_no_convenience  %>% 
+  left_join(
+    amenity_preference,
+    by = "amenity"
+  ) %>% 
+  left_join(
+    mode_preference,
+    by = "mode"
+  ) %>% 
+  group_by(id,mode,amenity) %>% 
+  arrange(time) %>% 
+  mutate(
+    amenity_rank = row_number() - 1
+  ) %>% 
+  ungroup()
+
+saveRDS(complete_temp_I_no_convenience ,"complete_temp_I_no_convenience.rds")
+```
+
+```{r}
+complete_modes_I_no_convenience  <- complete_temp_I_no_convenience  %>% 
+  mutate(
+    score = amenity_value * exp(-amenity_rank * amenity_decay) * exp(-time * mode_decay)
+  ) %>% 
+  group_by(id, mode) %>% 
+  arrange(desc(score)) %>% 
+  filter(!duplicated(osm_id)) %>%
+  summarize(
+    score = sum(score,na.rm=T)/sum(complete_baseline_I$score)
+  )
+
+saveRDS(complete_modes_I_no_convenience ,"complete_modes_I_no_convenience .rds")
+```
+
+```{r}
+complete_total_I_no_convenience  <- complete_temp_I_no_convenience  %>% 
+  mutate(
+    score = amenity_value * exp(-amenity_rank * amenity_decay) * mode_value * exp(-time * mode_decay)
+  ) %>% 
+  group_by(id) %>% 
+  arrange(desc(score)) %>% 
+  filter(!duplicated(osm_id)) %>% 
+  summarize(
+    score = sum(score, na.rm =T) /sum(complete_baseline_I$score)
+  ) %>% 
+  mutate(mode = "total")
+
+saveRDS(complete_total_I_no_convenience ,"complete_total_I_no_convenience.rds")
+```
+
+```{r}
+ complete_I_no_convenience  <- rbind(
+  complete_modes_I_no_convenience,
+  complete_total_I_no_convenience 
+ )
+
+saveRDS(complete_I_no_convenience ,"complete_I_no_convenience.rds")
+```
+
+```{r}
+complete_map_I_no_convenience  <- complete_I_no_convenience  %>% 
+  pivot_wider(
+   names_from = "mode",
+   values_from = "score"
+   ) %>%
+ cbind(Redwood_cbgs %>% select(GEOID)) %>%
+ st_as_sf()
+
+saveRDS(complete_map_I_no_convenience ,"complete_map_I_no_convenience.rds")
+```
+
+access_raw_no_wastewater 
+```{r}
+complete_temp_I_no_wastewater  <- access_raw_no_wastewater  %>% 
+  left_join(
+    amenity_preference,
+    by = "amenity"
+  ) %>% 
+  left_join(
+    mode_preference,
+    by = "mode"
+  ) %>% 
+  group_by(id,mode,amenity) %>% 
+  arrange(time) %>% 
+  mutate(
+    amenity_rank = row_number() - 1
+  ) %>% 
+  ungroup()
+
+saveRDS(complete_temp_I_no_wastewater ,"complete_temp_I_no_wastewater.rds")
+```
+
+```{r}
+complete_modes_I_no_wastewater  <- complete_temp_I_no_wastewater   %>% 
+  mutate(
+    score = amenity_value * exp(-amenity_rank * amenity_decay) * exp(-time * mode_decay)
+  ) %>% 
+  group_by(id, mode) %>% 
+  arrange(desc(score)) %>% 
+  filter(!duplicated(osm_id)) %>%
+  summarize(
+    score = sum(score,na.rm=T)/sum(complete_baseline_I$score)
+  )
+
+saveRDS(complete_modes_I_no_wastewater ,"complete_modes_I_no_wastewater.rds")
+```
+
+```{r}
+complete_total_I_no_wastewater <- complete_temp_I_no_wastewater  %>% 
+  mutate(
+    score = amenity_value * exp(-amenity_rank * amenity_decay) * mode_value * exp(-time * mode_decay)
+  ) %>% 
+  group_by(id) %>% 
+  arrange(desc(score)) %>% 
+  filter(!duplicated(osm_id)) %>% 
+  summarize(
+    score = sum(score, na.rm =T) /sum(complete_baseline_I$score)
+  ) %>% 
+  mutate(mode = "total")
+
+saveRDS(complete_total_I_no_wastewater ,"complete_total_I_no_wastewater.rds")
+```
+
+```{r}
+ complete_I_no_wastewater <- rbind(
+  complete_modes_I_no_wastewater,
+  complete_total_I_no_wastewater 
+ )
+
+saveRDS(complete_I_no_wastewater ,"complete_I_no_wastewater.rds")
+```
+
+```{r}
+complete_map_I_no_wastewater  <- complete_I_no_wastewater %>% 
+  pivot_wider(
+   names_from = "mode",
+   values_from = "score"
+   ) %>%
+ cbind(Redwood_cbgs %>% select(GEOID)) %>%
+ st_as_sf()
+
+saveRDS(complete_map_I_no_wastewater ,"complete_map_I_no_wastewater.rds")
+```
+
+```{r}
+complete_map_1_I <- readRDS("complete_map_I.rds") %>%
+  mutate(Amenities="Complete")
+
+complete_map_2_I <- readRDS("complete_map_I_no_wastewater.rds") %>%
+  mutate(Amenities="No Wastewater Plant")
+
+complete_map_3_I <- readRDS("complete_map_I_no_convenience.rds") %>%
+  mutate(Amenities="No Convenience Store")
+```
+
+```{r}
+complete_1 <- readRDS("complete_I.rds")
+complete_2 <- readRDS("complete_I_no_wastewater.rds")
+complete_3 <- readRDS("complete_I_no_convenience.rds")
+```
+
+```{r}
+compare_map_all <- rbind(complete_map_1_I, complete_map_2_I,complete_map_3_I )
+
+saveRDS(compare_map_all,"compare_map_all.rds")
+```
+
+```{r}
+completemap <- rbind(complete_map_1_I, complete_map_2_I,complete_map_3_I) %>%
+mutate(
+  completeness_walking=ifelse(walking>=1,1,0),       completeness_cycling=ifelse(cycling>=1,1,0),
+  completeness_driving=ifelse(driving>=1,1,0),
+  completeness_total=ifelse(total>=1,1,0)
+) %>%
+  group_by(Amenities) %>%
+  summarize(
+    mean_normalized_walking = mean(walking),
+    percent_walking =    sum(completeness_walking,na.rm=T)/43*100,
+    mean_normalized_cycling = mean(cycling),
+    percent_cycling =    sum(completeness_cycling,na.rm=T)/43*100,
+    mean_normalized_driving = mean(driving),
+    percent_driving =    sum(completeness_driving,na.rm=T)/43*100,
+    mean_normalized_total = mean(total),
+    percent_total =    sum(completeness_total,na.rm=T)/43*100,    
+)%>% mutate(
+           walking = percent_walking,
+           cycling = percent_cycling,
+           driving = percent_driving,
+           total = percent_total 
+)
+```
+
+Map of "total" completeness scores for selected POIs in Redwood City --
+The total (normalized) completeness scores are all above 1. The center part of Redwood City has the highest total completeness scores over 2.6. The outer parts have lower scores around 2, especially the south western area.
+
+```{r}
+mapview(complete_map_1_I, zcol = "total")
+```
+
+Map of "walking" completeness scores for selected POIs in Redwood City --
+For walking, the center part of Redwood City has the total completeness score close to 1. The rest of the areas have lower scores below 1, especially the south western and north eastern areas.
+
+```{r}
+mapview(complete_map_1_I, zcol = "walking")
+```
+
+Map of "cycling" completeness scores for selected POIs in Redwood City -- For cycling, the center part of Redwood City has the total completeness score around 1.5. The outer areas have lower scores below 1, especially the south western and north eastern areas.
+
+```{r}
+mapview(complete_map_1_I, zcol = "cycling")
+```
+
+Map of "driving" completeness scores for selected POIs in Redwood City -- The driving completeness scores are all above 1. The center part of Redwood City has the highest driving completeness scores over 2.6. The outer parts have lower scores around 2, and the lowest especially in the south western area.
+
+```{r}
+mapview(complete_map_1_I, zcol = "driving")
+```
+
+Comparative analysis:
+
+```{r}
+compare_map_all_count <- compare_map_all %>%
+mutate(
+  walking_tier=ifelse(
+    walking<=0,0,ifelse(
+    walking<=1,1,ifelse( 
+    walking<=2,2,ifelse( 
+    walking<=3,3,ifelse( 
+    walking<=4,4,ifelse( 
+    walking<=5,5,6   
+    )))))),
+  driving_tier=ifelse(
+    driving<=0,0,ifelse(
+    driving<=1,1,ifelse( 
+    driving<=2,2,ifelse( 
+    driving<=3,3,ifelse( 
+    driving<=4,4,ifelse( 
+    driving<=5,5,6     
+    )))))),
+  cycling_tier=ifelse(
+    cycling<=0,0,ifelse(
+    cycling<=1,1,ifelse( 
+    cycling<=2,2,ifelse( 
+    cycling<=3,3,ifelse( 
+    cycling<=4,4,ifelse( 
+    cycling<=5,5,6      
+    )))))),
+  total_tier=ifelse(
+    total<=0,0,ifelse(
+    total<=1,1,ifelse( 
+    total<=2,2,ifelse( 
+    total<=3,3,ifelse( 
+    total<=4,4,ifelse( 
+    total<=5,5,6      
+    ))))))
+  )
+
+saveRDS(compare_map_all_count,"compare_map_all_count.rds")
+```
+
+```{r}
+compare_map_all_count_walking <- 
+  compare_map_all_count %>%
+  group_by(Amenities,walking_tier)  %>%
+  summarize(
+    walking_count = n()
+ ) %>%
+  mutate(
+    walking_perc =  walking_count/43
+ )
+```
+
+As no convenience stores in the communities, the walking completeness scores tend to be lower. There is about 90% of cbgs with scores <= 1, which is about 15% more than for the  communities with convenience stores.
+
+Communities with or without wastewater plants do not have obvious difference in the walking completeness scores.
+
+```{r}
+ggplot(compare_map_all_count_walking, aes(x=walking_tier, y=walking_perc))+
+  geom_bar(stat='identity', fill="forest green")+
+  facet_wrap(~Amenities)
+```
+
+For communities with convenience stores, about 60% of cbgs have completeness scores greater than 5. However, as for no convenience stores in the communities, the driving completeness scores tend to be lower and all fall below 5. 
+
+Communities without wastewater plants do have higher driving completeness scores, about 10% more of cbgs in the tier of score 5.
+
+```{r}
+compare_map_all_count_driving <- 
+  compare_map_all_count %>%
+  group_by(Amenities,driving_tier)  %>%
+  summarize(
+    driving_count = n()
+ ) %>%
+  mutate(
+    driving_perc =  driving_count/43
+ )
+```
+
+```{r}
+ggplot(compare_map_all_count_driving, aes(x=driving_tier, y=driving_perc))+
+  geom_bar(stat='identity', fill="pink")+
+  facet_wrap(~Amenities)
+```
+
+```{r}
+compare_map_all_count_cycling <- 
+  compare_map_all_count %>%
+  group_by(Amenities,cycling_tier)  %>%
+  summarize(
+    cycling_count = n()
+ ) %>%
+  mutate(
+    cycling_perc =  cycling_count/43
+ )
+```
+
+For communities with convenience stores, more than 50% of cbgs have cycling completeness score greater than 2. However, without convenience stores in the communities, the cycling completeness scores tend to be lower and all fall below 2. 
+
+Communities with or without wastewater plants do not have obvious difference in the cycling completeness scores.
+
+```{r}
+ggplot(compare_map_all_count_cycling, aes(x=cycling_tier, y=cycling_perc))+
+  geom_bar(stat='identity', fill="blue")+
+  facet_wrap(~Amenities)
+```
+
+```{r}
+compare_map_all_count_total <- 
+  compare_map_all_count %>%
+  group_by(Amenities,total_tier)  %>%
+  summarize(
+    total_count = n()
+ ) %>%
+  mutate(
+    total_perc =  total_count/43
+ )
+```
+
+For communities with convenience stores, about 80% of cbgs have total completeness score greater than 4. However, without convenience stores in the communities, the total completeness scores tend to be lower and all fall below 4. 
+
+Communities without wastewater plants do have higher total completeness scores, about 5% more of cbgs increase in the tier of score 5.
+
+```{r}
+ggplot(compare_map_all_count_total, aes(x=total_tier, y=total_perc))+
+  geom_bar(stat='identity', fill="grey")+
+  facet_wrap(~Amenities)
+```
+
+Since Difference=(score without wastewater plants) -(score with wastewater plants), positive difference implies that communities without wastewater plants have higher completeness scores.
+
+```{r}
+complete_map_2_1_D <-
+  complete_map_2_I %>%
+  st_drop_geometry() %>%
+  rename(cycling_2=cycling,
+         driving_2=driving,
+         walking_2=walking,
+         total_2=total
+  ) %>%
+ left_join(complete_map_1_I %>% 
+    select( GEOID=GEOID,cycling,driving,walking,total)) %>% 
+  mutate(cycling_D=cycling_2-cycling,
+         driving_D=driving_2-driving,
+         walking_D=walking_2-walking,
+          total_D=total_2-total
+) %>%  
+  st_as_sf()
+
+saveRDS(complete_map_2_1_D,"complete_map_2_1_D.rds")
+```
+
+Without wastewater plants in the communities, the total completeness scores increase in the range of 0~0.3. North western and central parts of Redwood City have more increase in total scores after negative amenity is eliminated.  
+
+```{r}
+mapview(complete_map_2_1_D, zcol = "total_D")
+```
+
+Without wastewater plants in the communities, the cycling completeness scores increase in the range of 0~0.06. Northern areas in Redwood City have mild increase in total scores after negative amenity is eliminated.  
+
+```{r}
+mapview(complete_map_2_1_D, zcol = "cycling_D")
+```
+
+Without wastewater plants in the communities, the driving completeness scores increase in the range of 0~0.35. North western and central parts of Redwood City have more increase in driving scores after negative amenity is eliminated. 
+
+```{r}
+mapview(complete_map_2_1_D, zcol = "driving_D")
+```
+
+Without wastewater plants in the communities, the walking completeness scores increase in the range of 0~0.09. Northern part of Redwood City have mild increase in walking scores after negative amenity is eliminated. 
+
+```{r}
+mapview(complete_map_2_1_D, zcol = "walking_D")
+```
+
+Since Difference= (score without convenience stores) - (score with convenience stores), negative difference implies that communities without convenience stores have lower completeness score.
+
+```{r}
+complete_map_3_1_D <-
+  complete_map_3_I %>%
+  st_drop_geometry() %>%
+  rename(cycling_3=cycling,
+         driving_3=driving,
+         walking_3=walking,
+         total_3=total
+  ) %>%
+ left_join(complete_map_1_I %>% 
+    select( GEOID=GEOID,cycling,driving,walking,total)) %>% 
+  mutate(cycling_D=cycling_3-cycling,
+         driving_D=driving_3-driving,
+         walking_D=walking_3-walking,
+          total_D=total_3-total
+) %>%  
+  st_as_sf()
+
+saveRDS(complete_map_3_1_D,"complete_map_3_1_D.rds")
+```
+
+Without convenience stores in the communities, the total completeness score decrease in the range of 
+(-1.1 ~ -0.7). The central part of Redwood City have more decrease in total scores after convenience stores are eliminated. 
+
+```{r}
+mapview(complete_map_3_1_D, zcol = "total_D")
+```
+
+Without convenience stores in the communities, the cycling completeness score decrease in the range of 
+(-0.7, 0). The central part of Redwood City have more decrease in cycling scores after convenience stores are eliminated. 
+
+```{r}
+mapview(complete_map_3_1_D, zcol = "cycling_D")
+```
+
+Without convenience stores in the communities, the driving completeness score decrease in the range of 
+(-1.1 ~ -0.7). The central part of Redwood City have more decrease in driving scores after convenience stores are eliminated. 
+
+```{r}
+mapview(complete_map_3_1_D, zcol = "driving_D")
+```
+
+Without convenience stores in the communities, the walking completeness score decrease in the range of 
+(-0.5, 0). The central part of Redwood City have more decrease in walking scores after convenience stores are eliminated. 
+
+```{r}
+mapview(complete_map_3_1_D, zcol = "walking_D")
+```
+
+```{r}
+completemap_long <-
+   completemap %>% select(!starts_with("p"))%>%
+   select(!starts_with("m"))%>%
+   st_drop_geometry() %>%
+     pivot_longer(c("walking","cycling", "driving","total"),
+     names_to = "mode",
+     values_to = "percentage_over_baseline"
+)
+```
+
+Comparison of completeness scores for including wastewater plant (negative amenity) and excluding convenience store (essential amenity) in Redwood city
+
+```{r}
+P <- ggplot(completemap_long)+
+  geom_bar(aes(x=mode,y=percentage_over_baseline,fill=Amenities),position = "dodge",stat="identity") +
+   theme(legend.position="bottom") 
+
+P + scale_x_discrete(limits = c("walking","cycling", "driving","total")) +
+ggtitle("Redwood City Block Group Percentages with Completeness Scores \n           over Baseline")
+
+```
+
+```{r}
+completemap_long <-
+  completemap %>% select("Amenities", starts_with("m")) %>% 
+ st_drop_geometry()  %>%
+  mutate( walking = mean_normalized_walking,
+          cycling = mean_normalized_cycling,
+          driving = mean_normalized_driving,
+          total = mean_normalized_total
+          ) %>% 
+   select(! starts_with("m")) %>%
+     pivot_longer(
+       c("walking", "cycling", "driving","total"),
+     names_to = "mode",
+     values_to = "mean_normalized_score"
+)
+```
+
+```{r}
+P <- ggplot(completemap_long)+
+  geom_bar(aes(x=mode, y=mean_normalized_score,fill=Amenities),position = "dodge",stat="identity") +
+   theme(legend.position="bottom") 
+
+P + scale_x_discrete(limits = c("walking","cycling", "driving","total")) +
+ggtitle("Redwood City Mean Normalized Completeness Scores")
+```
+
+Geographical (sub-regions) comparison of completeness scores and percentages of scores over baseline for including negative amenity and excluding essential amenity in the communities of Redwood city
+
+
+PART II. 
+Equity Analysis -- completeness score comparison by race using 2020 decennial census data)
+
+```{r}
+smc_income_cbgs <-
+readRDS("smc_income_cbgs.rds") %>%
+mutate(income_tier= 
+    ifelse(income=="Less than $10,000"  |
+           income=="$10,000 to $14,999" |
+           income=="$15,000 to $19,999","<20K", 
+    ifelse(income=="$20,000 to $24,999" |
+           income=="$25,000 to $29,999" |
+           income=="$30,000 to $34,999","20-35K",
+    ifelse(income=="$35,000 to $39,999" |
+           income=="$40,000 to $44,999" |
+           income=="$45,000 to $49,999","35-50K",      ifelse(income=="$50,000 to $59,999" |
+           income=="$60,000 to $74,999" |
+           income=="$75,000 to $99,999","50-100K",     ifelse(income=="$100,000 to $124,999" |
+           income=="$125,000 to $149,999" |
+           income=="$150,000 to $199,999",
+           "100-200K", ">200K"
+  )))))) 
+```
+
+```{r}
+# complete_map_1_I_Income <-
+#   complete_map_1_I %>% 
+#  left_join(smc_income_cbgs, by=c("GEOID"="cbg")) %>% 
+#  mutate(
+#  walking_tier=ifelse(
+#    walking<=0,0,ifelse(
+#    walking<=1,1,ifelse( 
+#    walking<=2,2,ifelse( 
+#    walking<=3,3,ifelse( 
+#    walking<=4,4,5  
+#    ))))),
+#  driving_tier=ifelse(
+#    driving<=0,0,ifelse(
+#    driving<=1,1,ifelse( 
+#    driving<=2,2,ifelse( 
+#    driving<=3,3,ifelse( 
+#    driving<=4,4,5   
+#    ))))),
+#  cycling_tier=ifelse(
+#    cycling<=0,0,ifelse(
+#    cycling<=1,1,ifelse( 
+#    cycling<=2,2,ifelse( 
+#    cycling<=3,3,ifelse( 
+#    cycling<=4,4,5     
+#    ))))),
+#  total_tier=ifelse(
+#    total<=0,0,ifelse(
+#    total<=1,1,ifelse( 
+#    total<=2,2,ifelse( 
+#    total<=3,3,ifelse( 
+#    total<=4,4,5     
+#    ))))))   
+
+# saveRDS(complete_map_1_I_Income,"complete_map_1_I_Income.rds")
+
+complete_map_1_I_Income <- readRDS("complete_map_1_I_Income.rds")
+```
+
+```{r}
+complete_map_1_I_Income_Walk <-
+complete_map_1_I_Income %>%
+  group_by(walking_tier,income_tier) %>%
+  summarize(
+    sum_estimate =sum(estimate, na.rm = T)
+  )
+```
+
+```{r}
+Plot1 <- complete_map_1_I_Income_Walk  %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = walking_tier,
+        y =  sum_estimate,
+        fill = income_tier 
+       ),
+        stat = "identity",
+        position = "stack"
+  ) + 
+labs(
+    x = "Walking completeness score",
+    y = "Number of households",
+    fill="Income",
+    title = "Population by Walking completeness scores/Income in Redwood City"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+Most householders have walking completeness scores in the tier of 5. 
+
+```{r}
+Plot1
+```
+
+The population groups with >$100K tend to have lower walking completeness scores. On the contrary, the population groups with income < $100K tend to have higher walking completeness scores.
+
+```{r}
+Plot2 <- complete_map_1_I_Income_Walk  %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = walking_tier,
+        y =  sum_estimate,
+        fill = income_tier 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "Walking completeness score",
+    y = "Number of households",
+    fill="Income",
+    title = "Population by Walking completeness scores/Income in Redwood City"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot2
+```
+
+```{r}
+complete_map_1_I_Income_Drive <-
+complete_map_1_I_Income %>%
+  group_by(driving_tier,income_tier) %>%
+  summarize(
+    sum_estimate =sum(estimate, na.rm = T)
+  )
+```
+
+Most householders have driving completeness scores in the tier of 5. 
+
+```{r}
+Plot3 <- complete_map_1_I_Income_Drive  %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = driving_tier,
+        y =  sum_estimate,
+        fill = income_tier 
+       ),
+        stat = "identity",
+        position = "stack"
+  ) + 
+labs(
+    x = "Driving completeness score",
+    y = "Number of households",
+    fill="Income",
+    title = "Population by driving completeness scores/Income in Redwood City"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot3
+```
+
+The population groups with >$100K tend to have lower driving completeness scores. On the contrary, the population groups with income < $100K tend to have higher driving completeness scores.
+
+```{r}
+Plot4 <- complete_map_1_I_Income_Drive  %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = driving_tier,
+        y =  sum_estimate,
+        fill = income_tier 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "Driving completeness score",
+    y = "Number of households",
+    fill="Income",
+    title = "Population by driving completeness scores/Income in Redwood City"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot4
+```
+
+```{r}
+complete_map_1_I_Income_Cycle <-
+complete_map_1_I_Income %>%
+  group_by(cycling_tier,income_tier) %>%
+  summarize(
+    sum_estimate =sum(estimate, na.rm = T)
+  )
+```
+
+Most householders have cycling completeness scores in the tier of 3. 
+
+```{r}
+Plot5 <- complete_map_1_I_Income_Cycle  %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = cycling_tier,
+        y =  sum_estimate,
+        fill = income_tier 
+       ),
+        stat = "identity",
+        position = "stack"
+  ) + 
+labs(
+    x = "Cycling completeness score",
+    y = "Number of households",
+    fill="Income",
+    title = "Population by cycling completeness scores/Income in Redwood City"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot5
+```
+
+Similarly, the population groups with >$100K tend to have lower cycling completeness scores. On the contrary, the population groups with income < $100K tend to have higher cycling completeness scores.
+
+```{r}
+Plot6 <- complete_map_1_I_Income_Cycle  %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = cycling_tier,
+        y =  sum_estimate,
+        fill = income_tier 
+       ),
+        stat = "identity",
+        position = "fill"
+  ) + 
+labs(
+    x = "Cycling completeness score",
+    y = "Number of households",
+    fill="Income",
+    title = "Population by cycling completeness scores/Income in Redwood City"
+  ) + 
+  coord_flip()
+    theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  ) 
+```
+
+```{r}
+Plot6
+```
+
+
+
+
+# PART III.
+Travel Pattern Analysis of NHTS data
+
+```{r}
+person_weights <-
+  survey_person %>% 
+  left_join(
+    survey_person_weights_7day %>% 
+      select(
+        sampno,
+        perno,
+        wttrdfin
+      ),
+    by = c("sampno","perno")
+  )
+```
+
+```{r}
+bay_county_names <-
+  c(
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma"
+  )
+
+bay_counties <- counties("CA", cb=T, progress_bar = F) %>%
+  filter(NAME %in% bay_county_names)
+
+cbsas <- core_based_statistical_areas(cb = T, progress_bar = F)
+
+bay_cbsas <-
+  cbsas %>%
+  .[bay_counties %>% st_centroid(), ]
+```
+Travel Pattern Analysis for Bay area
+-- CBSAS map
+```{r}
+leaflet(bay_cbsas) %>% 
+  addTiles() %>% 
+  addPolygons(
+    label = ~paste0(GEOID,": ",NAME)
+  )
+```
+
+```{r}
+bay_trips <-
+  survey_trip %>% 
+  left_join(
+    survey_person,
+    by = c("sampno","perno")
+  ) %>% 
+  left_join(
+    survey_person_weights_7day %>% 
+      select(
+        sampno,
+        perno,
+        wttrdfin
+      ),
+    by = c("sampno","perno")
+  ) %>% 
+  left_join(
+    survey_household %>% select(
+      sampno,
+      hh_cbsa
+    )
+  ) %>% 
+  filter(hh_cbsa %in% bay_cbsas$GEOID)
+```
+
+```{r}
+purpose_lookup <-
+  nhts_lookup %>% 
+  filter(NAME == "WHYTO") %>% 
+  select(VALUE, LABEL) %>% 
+  mutate(
+    VALUE = as.numeric(VALUE),
+    LABEL = factor(LABEL, levels = LABEL)
+  )
+
+purpose_lookup
+```
+
+```{r}
+mode_lookup <-
+  nhts_lookup %>% 
+  filter(NAME == "TRPTRANS") %>% 
+  select(VALUE, LABEL) %>% 
+  mutate(
+    VALUE = as.numeric(VALUE),
+    LABEL = factor(LABEL, levels = LABEL)
+  )
+
+mode_lookup
+```
+
+```{r}
+bay_trips_summary_whyto <-
+  bay_trips %>% 
+  left_join(
+    purpose_lookup,
+    by = c("whyto" = "VALUE")
+  ) %>% 
+  rename(purpose_label = LABEL) %>% 
+  left_join(
+    mode_lookup,
+    by = c("trptrans" = "VALUE")
+  ) %>% 
+  rename(mode_label = LABEL) %>% 
+  mutate(
+    tripmiles_wt =
+      trpmiles * wttrdfin
+  ) %>% 
+  group_by(
+    purpose_label,
+    mode_label
+  ) %>% 
+  summarize(
+    tripmiles_wt = sum(tripmiles_wt),
+    trips = sum(wttrdfin),
+    trvlcmin = mean (trvlcmin, na.rm = T)
+  ) %>% 
+  ungroup()
+```
+
+```{r}
+bay_trips_summary_whyfrom <-
+  bay_trips %>% 
+  left_join(
+    purpose_lookup,
+    by = c("whyfrom" = "VALUE")
+  ) %>% 
+  rename(purpose_label = LABEL) %>% 
+  left_join(
+    mode_lookup,
+    by = c("trptrans" = "VALUE")
+  ) %>% 
+  rename(mode_label = LABEL) %>% 
+  mutate(
+    tripmiles_wt =
+      trpmiles * wttrdfin
+  ) %>% 
+  group_by(
+    purpose_label,
+    mode_label
+  ) %>% 
+  summarize(
+    tripmiles_wt = sum(tripmiles_wt),
+    trips = sum(wttrdfin),
+    trvlcmin = mean (trvlcmin, na.rm = T)
+  ) %>% 
+  ungroup()
+```
+
+```{r}
+bay_trips_summary <-
+  rbind(
+    bay_trips_summary_whyto,
+    bay_trips_summary_whyfrom
+  ) %>% 
+  group_by(purpose_label, mode_label) %>% 
+  summarize(
+    tripmiles_wt = mean(tripmiles_wt, na.rm = T),
+    trips = mean(trips, na.rm = T),
+    trvlcmin = mean (trvlcmin, na.rm = T)
+  ) %>% 
+  ungroup()
+```
+
+```{r}
+bay_trips_summary_wide <-
+  bay_trips_summary %>% 
+  pivot_wider(
+    -(c(tripmiles_wt,trvlcmin)),
+    names_from = mode_label,
+    values_from = trips
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+bay_trips_summary %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips)
+  ) + 
+  geom_text(
+    aes(label = (trips/1e6) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Bay Area travel patterns, 2017",
+    subtitle = "Values are millions of trips per year."
+  )
+```
+
+People in Bay Area tend to travel mostly by cars, followed by SUV, walking and van. The trip purposes are mostly regular home activities, followed by buying goods, work and dropping off/picking up someone.
+
+```{r}
+bay_trips_summary %>% 
+  filter(
+    trips > 1e6/2,
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips)
+  ) + 
+  geom_text(
+    aes(label = (trips/1e6) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Bay Area travel patterns, 2017",
+    subtitle = "Values are millions of trips per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated trips removed."
+  )
+```
+
+For trip frequency over half million, the major travel purpose becomes buying goods, followed by work and then dropping off/picking up someone. People tend to travel mostly by cars still, followed by walking, and then SUV.
+
+```{r}
+bay_trips_summary_wide <-
+  bay_trips_summary %>% 
+  pivot_wider(
+    -(c(tripmiles_wt,trips)),
+    names_from = mode_label,
+    values_from = trvlcmin
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+bay_trips_summary %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trvlcmin)
+  ) + 
+  geom_text(
+    aes(label = (trvlcmin) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Bay Area travel time duration, 2017",
+    subtitle = "Values are time duration in minutes."
+  )
+```
+
+Some trip modes such as airplane, Amtrak/Commuter rail or subway/elevated/light rail/street car have longer duration times. Mostly the duration times are between 10~20 minutes. For example, specifically, for walking to work, the duration is 10 (min). For cycling to work, the duration is 20 (min). For driving to work with car, the duration is 22 (min). For buying goods, the duration times are 10, 12, 10 (min) for walking, cycling, and driving, respectively, which can be used as the reference for the reasonable duration time in computing the community completeness score  accordingly.
+
+```{r}
+bay_trips_summary_wide <-
+  bay_trips_summary %>% 
+  pivot_wider(
+    -(c(trips,trvlcmin)),
+    names_from = mode_label,
+    values_from = tripmiles_wt
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+bay_trips_summary %>% 
+  filter(
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  mutate(
+    trips_perc = trips/sum(trips)
+  ) %>% 
+  filter(
+    trips_perc > 0.005
+  ) %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips_perc)
+  ) + 
+  geom_text(
+    aes(label = (trips_perc*100) %>% round()), 
+    color = "white"
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Bay Area travel patterns, 2017",
+    subtitle = "Values are percentages of trips per year with home-allocated trips removed."
+  )
+```
+
+The percentage of trips for Buying goods with car is the highest, followed by work with car and then dropping off/picking up someone with car.
+
+```{r}
+bay_trips_summary %>% 
+  filter(
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)"),
+    tripmiles_wt > 1e7/2
+  ) %>%
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = tripmiles_wt)
+  ) + 
+  geom_text(
+    aes(label = (tripmiles_wt/1e7) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Bay Area travel patterns, 2017",
+    subtitle = "Values are tens of millions of trip mileages per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated trips removed."
+  )
+```
+
+Except that airplane travel for the purpose of changing type of transportation has the highest mileages, work and buying goods with car have the greatest trip mileages among others. Buying meals, visiting friends/relatives, dropping off/picking up someone, recreational activities with car are the next category with the higher mileages.
+
+```{r}
+bay_trips_summary %>% 
+  filter(
+    mode_label != "Airplane",
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  mutate(
+    tripmiles_perc = tripmiles_wt/sum(tripmiles_wt)
+  ) %>%
+  filter(
+    tripmiles_perc > 0.005
+  ) %>%
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = tripmiles_perc)
+  ) + 
+  geom_text(
+    aes(label = (tripmiles_perc*100) %>% round()), 
+    color = "white"
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Destination",
+    y = "Trip Mode",
+    title = "Bay Area travel patterns, 2017",
+    subtitle = "Values are percentage of trip mileages per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated/Airplane trips removed."
+  )
+```
+
+Car traveling have the highest percentages in terms of the mileages after Home-allocated/Airplane trips were removed. For traveling purpose, buying goods and work have equally high percentages in travel mileages, followed by visiting friend/relatives and buying meals, and then,  dropping off/picking up someone, attending school and recreational activities.
+
+Travel Pattern Analysis for San Mateo County
+```{r}
+# SMC_county_boundary <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME == "San Mateo")
+
+# saveRDS(SMC_county_boundary,"SMC_county_boundary.rds")
+
+# cbsas <- core_based_statistical_areas(cb = T, progress_bar = F)
+# saveRDS(cbsas, "cbsas.rds")
+cbsas <- readRDS("cbsas.rds")
+
+# SM_cbsas <-
+#  cbsas %>%
+#  .[SMC_county_boundary %>% st_centroid(), ]
+
+# saveRDS(SM_cbsas, "SM_cbsas.rds")
+SM_cbsas <- readRDS( "SM_cbsas.rds")
+```
+San Mateo County CBSAS map 
+```{r}
+leaflet(SM_cbsas) %>% 
+  addTiles() %>% 
+  addPolygons(
+    label = ~paste0(GEOID,": ",NAME)
+  )
+```
+
+```{r}
+SM_trips <-
+  survey_trip %>% 
+left_join(
+    survey_person,
+    by = c("sampno","perno")
+  ) %>% 
+  left_join(
+    survey_person_weights_7day %>% 
+      select(
+        sampno,
+        perno,
+        wttrdfin
+      ),
+    by = c("sampno","perno")
+  ) %>% 
+  left_join(
+    survey_household %>% select(
+      sampno,
+      hh_cbsa
+    )
+  ) %>% 
+  filter(hh_cbsa %in% SM_cbsas$GEOID)
+```
+
+```{r}
+SM_trips_summary_whyto <-
+  SM_trips %>% 
+  left_join(
+    purpose_lookup,
+    by = c("whyto" = "VALUE")
+  ) %>% 
+  rename(purpose_label = LABEL) %>% 
+  left_join(
+    mode_lookup,
+    by = c("trptrans" = "VALUE")
+  ) %>% 
+  rename(mode_label = LABEL) %>% 
+  mutate(
+    tripmiles_wt =
+      trpmiles * wttrdfin
+  ) %>% 
+  group_by(
+    purpose_label,
+    mode_label
+  ) %>% 
+  summarize(
+    tripmiles_wt = sum(tripmiles_wt),
+    trips = sum(wttrdfin),
+    trvlcmin = mean (trvlcmin) 
+    ) %>% 
+  ungroup()
+```
+
+```{r}
+SM_trips_summary_whyfrom <-
+  SM_trips %>% 
+  left_join(
+    purpose_lookup,
+    by = c("whyfrom" = "VALUE")
+  ) %>% 
+  rename(purpose_label = LABEL) %>% 
+  left_join(
+    mode_lookup,
+    by = c("trptrans" = "VALUE")
+  ) %>% 
+  rename(mode_label = LABEL) %>% 
+  mutate(
+    tripmiles_wt =
+      trpmiles * wttrdfin
+  ) %>% 
+  group_by(
+    purpose_label,
+    mode_label
+  ) %>% 
+  summarize(
+    tripmiles_wt = sum(tripmiles_wt),
+    trips = sum(wttrdfin),
+    trvlcmin = mean (trvlcmin)    
+  ) %>% 
+  ungroup()
+```
+
+```{r}
+SM_trips_summary <-
+  rbind(
+    SM_trips_summary_whyto,
+    SM_trips_summary_whyfrom
+  ) %>% 
+  group_by(purpose_label, mode_label) %>% 
+  summarize(
+    tripmiles_wt = mean(tripmiles_wt, na.rm = T),
+    trips = mean(trips, na.rm = T),
+    trvlcmin = mean (trvlcmin, na.rm = T)
+  ) %>% 
+ ungroup()
+```
+
+```{r}
+SM_trips_summary_wide <-
+  SM_trips_summary %>% 
+  pivot_wider(
+    -(c(tripmiles_wt,trvlcmin)),
+    names_from = mode_label,
+    values_from = trips
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+SM_trips_summary %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips)
+  ) + 
+  geom_text(
+    aes(label = (trips/1e6) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "San Mateo travel patterns, 2017",
+    subtitle = "Values are millions of trips per year. "
+  )
+```
+
+Similar to the case in Bay area, People in San Mateo County travel mostly by cars, followed by SUV, walking and van. The trip purposes are mostly regular home activities, followed by buying goods, work and dropping off/picking up someone.
+
+```{r}
+SM_trips_summary %>% 
+  filter(
+    trips > 1e6/2,
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips)
+  ) + 
+  geom_text(
+    aes(label = (trips/1e6) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "San Mateo County travel patterns, 2017",
+    subtitle = "Values are millions of trips per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated trips removed."
+  )
+```
+
+Same as in the case of Bay area, for trip frequency over half million, the major travel purpose is still buying goods, followed by work and then dropping off/picking up someone. The order for travel mode is also cars > walking > SUV.
+
+```{r}
+SM_trips_summary_wide <-
+  SM_trips_summary %>% 
+  pivot_wider(
+    -(c(tripmiles_wt,trips)),
+    names_from = mode_label,
+    values_from = trvlcmin
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+SM_trips_summary %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trvlcmin)
+  ) + 
+  geom_text(
+    aes(label = (trvlcmin) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "San Mateo County travel time duration, 2017",
+    subtitle = "Values are time duration in minutes."
+  )
+```
+
+Similar to the case of Bay area, the duration times remain to be between 10~20 minutes. For work, the duration is 9, 20, 23 (min) for walking, cycling, and driving, respectively. For buying goods, the duration times are also 10, 14, 10 (min) for walking, cycling, and driving, respectively.
+
+```{r}
+SM_trips_summary_wide <-
+  SM_trips_summary %>% 
+  pivot_wider(
+    -(c(trips,trvlcmin)),
+    names_from = mode_label,
+    values_from = tripmiles_wt
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+SM_trips_summary %>% 
+  filter(
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  mutate(
+    trips_perc = trips/sum(trips)
+  ) %>% 
+  filter(
+    trips_perc > 0.005
+  ) %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips_perc)
+  ) + 
+  geom_text(
+    aes(label = (trips_perc*100) %>% round()), 
+    color = "white"
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "San Mateo County travel patterns, 2017",
+    subtitle = "Values are percent of trips per year. Home-allocated trips removed."
+  )
+```
+
+Same as in the Bay area, the percentage of trips for Buying goods with car is the highest, followed by work with car and then dropping off/picking up someone with car.
+
+
+```{r}
+SM_trips_summary %>% 
+  filter(
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)"),
+    tripmiles_wt > 1e7/2
+  ) %>%
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = tripmiles_wt)
+  ) + 
+  geom_text(
+    aes(label = (tripmiles_wt/1e7) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "San Mateo County travel patterns, 2017",
+    subtitle = "Values are tens of millions of trip miles per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated trips removed."
+  )
+```
+
+Similar results were obtained here as for Bay area that work and buying meals with car have the greater trip mileages among all except for the airplane trips.  Visiting friends/relatives, recreation activities, buying goods,  dropping off/picking up someone with car are the next category with the higher mileages.
+
+
+```{r}
+SM_trips_summary %>% 
+  filter(
+    mode_label != "Airplane",
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  mutate(
+    tripmiles_perc = tripmiles_wt/sum(tripmiles_wt)
+  ) %>%
+  filter(
+    tripmiles_perc > 0.005
+  ) %>%
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = tripmiles_perc)
+  ) + 
+  geom_text(
+    aes(label = (tripmiles_perc*100) %>% round()), 
+    color = "white"
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Destination",
+    y = "Trip Mode",
+    title = "San Mateo County travel patterns, 2017",
+    subtitle = "Values are percent of trip miles per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated/Airplane trips removed."
+  )
+```
+
+Same as in the Bay area, car traveling still have the highest percentages in terms of the mileages after Home-allocated/Airplane trips were removed. For traveling purpose, work have the exactly high  percentage of the mileage as in the Bay area. Buying meals, dropping off/picking up someone, buying goods, recreational activities, visiting friends/relatives is the category with the second highest percentages.
+However, different from the Bay area, the percentages in San Mateo County for buying goods and attending school are much lower.
+
+
+
+Travel Pattern Analysis for Redwood City
+```{r}
+Redwood_boundary <-
+  readRDS("Redwood_boundary.rds")
+
+Redwood_cbsas <-
+  cbsas %>%
+  .[Redwood_boundary %>% st_centroid(), ]
+
+# saveRDS(Redwood_cbsas, "Redwood_cbsas.rds")
+
+Redwood_cbsas <- readRDS("Redwood_cbsas.rds")
+```
+Redwood City CBSAS map
+```{r}
+leaflet(Redwood_cbsas) %>% 
+  addTiles() %>% 
+  addPolygons(
+    label = ~paste0(GEOID,": ",NAME)
+  )
+```
+
+```{r}
+Redwood_trips <-
+  survey_trip %>% 
+left_join(
+    survey_person,
+    by = c("sampno","perno")
+  ) %>% 
+  left_join(
+    survey_person_weights_7day %>% 
+      select(
+        sampno,
+        perno,
+        wttrdfin
+      ),
+    by = c("sampno","perno")
+  ) %>% 
+  left_join(
+    survey_household %>% select(
+      sampno,
+      hh_cbsa
+    )
+  ) %>% 
+  filter(hh_cbsa %in% Redwood_cbsas$GEOID)
+```
+
+`````{r}
+Redwood_trips_2 <-
+  bay_trips %>% 
+  left_join(
+    survey_location,
+    by = c("sampno","perno")
+  ) %>% filter (city == "REDWOOD CITY")
+```
+
+```{r}
+Redwood_trips_summary_whyto <-
+  Redwood_trips %>% 
+  left_join(
+    purpose_lookup,
+    by = c("whyto" = "VALUE")
+  ) %>% 
+  rename(purpose_label = LABEL) %>% 
+  left_join(
+    mode_lookup,
+    by = c("trptrans" = "VALUE")
+  ) %>% 
+  rename(mode_label = LABEL) %>% 
+  mutate(
+    tripmiles_wt =
+      trpmiles * wttrdfin
+  ) %>% 
+  group_by(
+    purpose_label,
+    mode_label
+  ) %>% 
+  summarize(
+    tripmiles_wt = sum(tripmiles_wt),
+    trips = sum(wttrdfin),
+    trvlcmin = mean (trvlcmin, na.rm = T)
+  ) %>% 
+  ungroup()
+```
+
+```{r}
+Redwood_trips_summary_whyfrom <-
+  Redwood_trips %>% 
+  left_join(
+    purpose_lookup,
+    by = c("whyfrom" = "VALUE")
+  ) %>% 
+  rename(purpose_label = LABEL) %>% 
+  left_join(
+    mode_lookup,
+    by = c("trptrans" = "VALUE")
+  ) %>% 
+  rename(mode_label = LABEL) %>% 
+  mutate(
+    tripmiles_wt =
+      trpmiles * wttrdfin
+  ) %>% 
+  group_by(
+    purpose_label,
+    mode_label
+  ) %>% 
+  summarize(
+    tripmiles_wt = sum(tripmiles_wt),
+    trips = sum(wttrdfin),
+    trvlcmin = mean (trvlcmin, na.rm = T)
+  ) %>% 
+  ungroup()
+```
+
+```{r}
+Redwood_trips_summary <-
+  rbind(
+    Redwood_trips_summary_whyto,
+    Redwood_trips_summary_whyfrom
+  ) %>% 
+  group_by(purpose_label, mode_label) %>% 
+  summarize(
+    tripmiles_wt = mean(tripmiles_wt, na.rm = T),
+    trips = mean(trips, na.rm = T),
+    trvlcmin = mean (trvlcmin, na.rm = T)
+  ) %>% 
+  ungroup()
+```
+
+```{r}
+Redwood_trips_summary_wide <-
+  Redwood_trips_summary %>% 
+  pivot_wider(
+    -(c(tripmiles_wt,trvlcmin)),
+    names_from = mode_label,
+    values_from = trips
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+Redwood_trips_summary %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips)
+  ) + 
+  geom_text(
+    aes(label = (trips/1e6) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Redwood City travel patterns, 2017",
+    subtitle = "Values are millions of trips per year."
+  )
+```
+
+Similar to the case in Bay area and San Mateo County, people in Redwood City also travel mostly by cars, followed by SUV or walking, and then, van. The trip purposes are mostly regular home activities, followed by buying goods, work and dropping off/picking up someone.
+
+```{r}
+Redwood_trips_summary %>% 
+  filter(
+    trips > 1e6/2,
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips)
+  ) + 
+  geom_text(
+    aes(label = (trips/1e6) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Redwood City patterns, 2017",
+    subtitle = "Values are millions of trips per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated trips removed."
+  )
+```
+
+Same as the cases of Bay area and San Mateo, for trip frequency over half million, the major travel purpose is still buying goods, followed by work and then dropping off/picking up someone. The order for travel mode is also cars, followed by walking or SUV depending on trip purposes.
+
+```{r}
+Redwood_trips_summary_wide <-
+  Redwood_trips_summary %>% 
+  pivot_wider(
+    -(c(tripmiles_wt,trips)),
+    names_from = mode_label,
+    values_from = trvlcmin
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+Redwood_trips_summary %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trvlcmin)
+  ) + 
+  geom_text(
+    aes(label = (trvlcmin) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Redwood City travel time duration, 2017",
+    subtitle = "Values are millions of trips per year. Trips are allocated based on 50/50 split\nof origin/destination purpose."
+  )
+```
+
+Similar to the case of Bay area and San Mateo, the duration times remain to be between 10~20 minutes. For work, the duration is exactly the same as in San Mateo County which is 9, 20, 23 (min) for walking, cycling, and driving, respectively. For buying goods, the duration times are also 10, 14, 10 (min) for walking, cycling, and driving, respectively.
+
+
+```{r}
+Redwood_trips_summary_wide <-
+  Redwood_trips_summary %>% 
+  pivot_wider(
+    -(c(trips,trvlcmin)),
+    names_from = mode_label,
+    values_from = tripmiles_wt
+  ) %>% 
+  column_to_rownames("purpose_label")
+```
+
+```{r}
+Redwood_trips_summary %>% 
+  filter(
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  mutate(
+    trips_perc = trips/sum(trips)
+  ) %>% 
+  filter(
+    trips_perc > 0.005
+  ) %>% 
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips_perc)
+  ) + 
+  geom_text(
+    aes(label = (trips_perc*100) %>% round()), 
+    color = "white"
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Redwood City travel patterns, 2017",
+    subtitle = "Values are percent of trips per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated trips removed."
+  )
+```
+
+Same as in the Bay area and San Mateo County, the percentage of trips for Buying goods with car is the highest, followed by work with car and then dropping off/picking up someone with car.
+
+```{r}
+Redwood_trips_summary %>% 
+  filter(
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)"),
+    tripmiles_wt > 1e7/2
+  ) %>%
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = tripmiles_wt)
+  ) + 
+  geom_text(
+    aes(label = (tripmiles_wt/1e7) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "Redwood City travel patterns, 2017",
+    subtitle = "Values are tens of millions of trip miles per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated trips removed."
+  )
+```
+
+Similar results were obtained here as for Bay area and San Mateo County that work and buying meals with car have the greater trip mileages among all except for the airplane trips.  Visiting friends/relatives, recreation activities, buying goods,  dropping off/picking up someone with car are the next category with the higher mileages.
+
+Same as in the Bay area and San Mateo county, car traveling still have the highest percentages in terms of the mileages after Home-allocated/Airplane trips were removed. For traveling purpose, work have the exactly high percentage of the mileage as in the Bay area and San Mateo County. Buying meals, dropping off/picking up someone, buying goods, recreational activities, visiting friends/relatives is the category with the second highest percentages. 
+
+Both Redwood City and San Mateo County has much lower percentages of mileages for buying goods and attending school, which is different from Bay area.
+
+```{r}
+Redwood_trips_summary %>% 
+  filter(
+    mode_label != "Airplane",
+    !purpose_label %in% c("1. Regular home activities (chores, sleep)", "2. Work from home (paid)")
+  ) %>% 
+  mutate(
+    tripmiles_perc = tripmiles_wt/sum(tripmiles_wt)
+  ) %>%
+  filter(
+    tripmiles_perc > 0.005
+  ) %>%
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = tripmiles_perc)
+  ) + 
+  geom_text(
+    aes(label = (tripmiles_perc*100) %>% round()), 
+    color = "white"
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Destination",
+    y = "Trip Mode",
+    title = "Redwood City travel patterns, 2017",
+    subtitle = "Values are percent of trip miles per year. Trips are allocated based on 50/50 split\nof origin/destination purpose. Home-allocated trips removed."
+  )
+```
+
+Assumptions: The selected POIs (amenities) include park, convenience, restaurant, supermarket, library, wastewater plant. The selected time lengths for travel include 5, 10, and 15 minutes. The value of amenity preference are predetermined to be 0.7, 1.0, 0.5, 0.9, 0.8, -1.0 for park, convenience, restaurant, supermarket, library, wastewater plant, respectively. The corresponding amenity quantity are 2, 5, 30, 1, 1, 10.  The decay function for amenity is assumed to be y = -log(0.5)/(amenity quantity).
+
+The analyses are as follows.
+
+PART I. Completeness scores
+
+1.	Mapping for all Points of Interest (POIs) in San Mateo County
+
+2.	Mapping (in block groups) for the selected 6 POIs for San Mateo County
+
+3.	Mapping for Redwood City block groups
+
+4.	Mapping of total, walking, cycling, and driving normalized completeness scores for selected POIs
+
+5.	Mapping for geographical comparison across sub-regions in Redwood City for total, walking, cycling, and driving normalized completeness scores
+
+6.	Comparison of completeness scores and percentages of scores over baseline (i.e. value >1 ) for including negative (unwanted) amenity and excluding essential (necessary) amenity in the communities of Redwood city (i.e. Wastewater plant is considered as a negative amenity for this case; whereas, the convenience stores  is an essential amenity) 
+
+7. Based on the distribution histograms, as no convenience stores in the communities, all the walking, driving, cycling completeness scores tend to be lower. For communities with convenience stores, about 80% of cbgs have total completeness score greater than 4. However, without convenience stores in the communities, the total completeness scores all fall below 4. 
+
+8. Based on the distribution histograms, communities with or without wastewater plants do not have obvious difference in the walking and cycling completeness scores. But, communities without wastewater plants do have higher driving completeness scores and consequently, about 5% more of cbgs have total completeness scores in the tier of score 5.
+
+9. For comparative analysis, the mode-specific geographic mapping for changes of completeness scores after removing essential and negative amenities are presented. The changes due to no essential or negative amenities vary across cbgs. 
+For negative amenities, large changes, mainly in driving scores, occurs in the northern west or central areas of Redwood City. As for essential amenities, the central part of Redwood City have more decrease in walking, driving, cycling and total scores after convenience stores are eliminated. 
+
+
+Part II. Equity analysis
+
+The walking, driving and cycling completeness scores vary across income groups. The population groups with higher income (> $100K) tend to have lower walking, driving and cycling completeness scores. On the contrary, the population groups with lower income (< $100K) tend to have higher walking, driving and cycling completeness scores.
+
+
+Part III.
+
+The analyses (in blocks) of NHTS data were performed individually for geographical comparison of travel pattern among three regions: Bay area, San Mateo county and Redwood City. The analytical contents are as follows.
+
+1.	CBSAS map
+
+2.	Travel patterns for trip frequency, mileages, and duration(time length) by trip mode and trip purpose
+
+
+PART IV.
+
+The pros:
+
+1. As we do the geographical comparison of travel patterns for Bay area, San Mateo County and Redwood City with different sizes, we found that their travel patterns are pretty much homogeneous. The general findings show that people travel mostly by car (or SUV/ van) and walking. However, we do not see too much cycling from the data.  If excluding home activities as discussing about the transportation, the trip purposes are mostly buying goods, work and dropping off/picking up someone. The time lengths of travel are 9, 20, 23 for walking, cycling, and driving, respectively. These estimates are pretty close across three regions we inspected, and therefore, can be used as the reasonable duration, which is really important for trying to come up with less biased estimation in computing the community completeness scores. 
+
+2. The community completeness can be assessed with this approach which can served as good reference for community planing and development. The inclusion of certain amenities (negative or essential) can be evaluated ahead of development for the regions to reduce the potential risks from inappropriate planning.
+
+
+The cons:
+
+1. Differences may exist between geographic regions. For example, both Redwood City and San Mateo County has much lower trip percentages for buying goods and attending school, which is different from Bay area. This part of finding is critical for practitioners in the related planning and development business. However, the findings from the methodology may not be generalized for all cases. Moreover, the findings provided by the survey may have some time lag as the information is obtained and the potential bias may be expected due to the possible rapid change of travel patterns over time.
+
+2. The evaluation of community completeness involved with subjective viewpoints to certain degree which may lead to potential inappropriate  decision making in planning.
+
