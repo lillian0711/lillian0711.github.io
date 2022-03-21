@@ -1,0 +1,2285 @@
+---
+title: "218Y Assignment 3"
+author: "Lillian (Wei) Hung"
+date: "2022/02/1"
+output: html_document
+---
+
+```{r   setup, include=FALSE   }
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+Improvement includes:
+
+(1)	Data and plots for final vehicle GHGs were double-checked and revised.  
+
+(2) Leaflets were simplified for effective purpose. 
+
+(3)	For the final plot of all emissions, building + GHG, a bar chart was presented.
+
+
+
+# ---------------------------------------------
+The GHG emissions in this analysis was performed for Redwood City which consists of 5 ZIP code regions 94061~94065. Out of these five ZIP codes, four are literally existing regions but one is a P.O. Box.
+
+PART I. Analysis of vehicle emissions
+
+1.	 LODES 2013 to 2019 data was used to calculate commute emissions for Redwood City as both an origin and destination.  The data were read in block levels and transformed to ZIP code level.  The destination side used is Redwood City. For mapboxapi routing, the O-D data was summarized  to the ZIP-to-ZIP level to reduce the row number of data.
+
+2.	Vehicle types, LDT1 and LDA, for calculating emissions were assumed and adopted in this analysis.
+
+PART II Analysis of building emissions:
+
+1.	PG&E 2013 to 2019 data were used to calculate building emissions for Redwood City at the ZIP code level. The data were read in block group levels and transformed to ZIP code level.
+
+2.	To determine energy use intensity for the residential usage, Census population data in block group levels were read in and transformed into ZIP code level to estimate residential energy use per resident.
+
+3.	To determine energy use intensity for the commercial usage, LODES WAC data in Zip code level were used to estimate commercial energy use per job.
+
+4.	HDDs and CDDs from the Cal-Adapt Degree Day tool  were collected for Redwood City from 2013 to 2019. The residential energy use intensity was further normalized to obtain residential gas in the scale of KBTU/resident/HDD and residential electricity in the scale of KBTU/resident/CDD.  The commercial energy use intensity was further normalized to obtain
+commercial gas in the scale of KBTU/job/HDD and commercial electricity in the scale of KBTU/job/CDD over the period of 2013~2019.
+
+
+```{r}
+options(tigris_use_cache = TRUE)
+library(tidyverse)
+library(readxl)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+library(censusapi)
+library(devtools)
+library(ggplot2)
+library(mapboxapi)
+
+# install_github('walkerke/tigris', force = TRUE )
+
+# Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+```
+
+```{r}
+# ca_od_read <- read_csv("G:/Shared drives/SFBI/Data Library/LODES/ca_od_main_JT01_2019.csv.gz")
+```
+
+```{r}
+# rm(ca_od_read)
+```
+
+```{r}
+# zctas <- zctas()
+```
+
+```{r}
+# Redwood_zip <- zctas %>% 
+# filter( (GEOID10 >= 94061 ) & (GEOID10 <= 94065))
+
+# saveRDS(Redwood_zip, "Redwood_zip.rds")
+
+Redwood_zip <- readRDS("Redwood_zip.rds")
+```
+
+```{r}
+# CA_blocks <- blocks("CA")
+# saveRDS(CA_blocks,"CA_blocks.rds")
+```
+
+```{r}
+# ca_cbgs <- block_groups("CA")
+# saveRDS(ca_cbgs,"ca_cbgs.rds")
+ca_cbgs <- readRDS("ca_cbgs.rds")
+```
+
+Mapping of Redwood City in census block levels
+```{r}
+# Redwood_zip_blocks <- CA_blocks %>% 
+#  st_centroid() %>% 
+#  .[Redwood_zip, ]
+
+# saveRDS(Redwood_zip_blocks, "Redwood_zip_blocks.rds")
+
+Redwood_zip_blocks <- readRDS( "Redwood_zip_blocks.rds")
+
+mapview(Redwood_zip_blocks)
+```
+
+Mapping of Redwood City in Zip code level:
+there are 5 ZIP codes in Redwood City. Only four of those are existing regions, and one of those is a P.O.Box.
+
+```{r}
+leaflet() %>%
+addMapboxTiles(style_id = "streets-v11",username = "mapbox") %>%
+addPolygons(data = Redwood_zip,fill = F)
+```
+
+```{r}
+# full_zip_od <- 2013:2019 %>% 
+#  map_dfr(function(year){
+    
+#    print(year)
+    
+#    temp <- read_csv(paste0("G:/Shared drives/SFBI/Data Library/LODES/ca_od_main_JT01_", year, ".csv.gz")) %>% 
+#      filter(
+#        h_geocode %in% Redwood_zip_blocks$GEOID10 |
+#        w_geocode %in% Redwood_zip_blocks$GEOID10
+#      ) %>% 
+#     mutate(year = year)
+    
+#    saveRDS(temp, paste0("temp_od_", year, ".rds"))
+    
+#    return(temp)
+#   })
+```
+
+```{r}
+# saveRDS(full_zip_od, "full_zip_od.rds")
+
+# full_zip_od <- readRDS("full_zip_od.rds")
+```
+
+```{r}
+# Redwood_zip_od_clean <- full_zip_od %>% 
+#  select(-createdate) %>% 
+#  filter(!(
+#    h_geocode %in% Redwood_zip_blocks$GEOID10 &
+#    w_geocode %in% Redwood_zip_blocks$GEOID10
+#  )) %>% 
+#  mutate(
+#    direction = ifelse(
+#      h_geocode %in% Redwood_zip_blocks$GEOID10,
+#      "outbound",
+#      "inbound"
+#    )
+#  )
+
+# saveRDS(Redwood_zip_od_clean, "Redwood_zip_od_clean.rds")
+```
+
+```{r}
+Redwood_zip_od_clean <- readRDS("Redwood_zip_od_clean.rds")
+```
+
+```{r}
+# Redwood_zip_od_routing <- Redwood_zip_od_clean %>% 
+#  mutate(
+#    origin = ifelse(
+#      direction == "inbound",
+#      h_geocode,
+#      w_geocode
+#    ),
+#    cbg = origin %>% substr(1,12),
+#    tract = origin %>% substr(1,11)
+#  ) %>% 
+#  filter(!duplicated(tract))
+
+# saveRDS(Redwood_zip_od_routing,"Redwood_zip_od_routing.rds")
+```
+
+```{r}
+Redwood_zip_od_routing <-  readRDS("Redwood_zip_od_routing.rds")
+```
+
+```{r}
+# ca_tracts <- tracts("CA")
+# saveRDS(ca_tracts,"ca_tracts.rds")
+# ca_tracts <- readRDS("ca_tracts.rds")
+```
+
+```{r}
+# Redwood_zip_od_origin <-
+#  Redwood_zip_od_routing %>% 
+#  select(tract) %>% 
+#  left_join(ca_tracts %>% select(tract = GEOID)) %>% 
+#  st_as_sf() %>% 
+#  st_centroid() %>% 
+#  st_coordinates()
+
+# saveRDS(Redwood_zip_od_origin,"Redwood_zip_od_origin")
+```
+
+```{r}
+# Redwood_zip_od_destination <-
+#  zip %>% 
+#  st_centroid() %>% 
+#  st_coordinates()
+
+# saveRDS(Redwood_zip_od_destination,"Redwood_zip_od_destination" )
+```
+
+```{r}
+# zip_od_route <- 
+#  1:nrow(Redwood_zip_od_origin) %>%
+#  map_dfr(function(x){
+    
+    
+#    tryCatch(
+#      mb_directions(
+#        origin = Redwood_zip_od_origin[x, ],
+#        destination = Redwood_zip_od_destination,
+#        profile = "driving-traffic"
+#      ) %>% 
+#        mutate(id = x),
+#      error = function(e){
+#        data.frame(id = x)
+#      }
+#    )
+    
+#  }) %>% 
+#  st_as_sf()
+```
+
+```{r}
+# saveRDS(zip_od_route,"zip_od_route.rds")
+
+#zip_od_route <- readRDS("zip_od_route.rds")
+```
+
+```{r}
+#full_zip_od_routed <- Redwood_zip_od_routing %>% 
+#  cbind(zip_od_route)
+
+# saveRDS(full_zip_od_routed, "full_zip_od_routed.rds")
+
+full_zip_od_routed <- readRDS( "full_zip_od_routed.rds")
+
+```
+
+```{r}
+#full_zip_od_final <- Redwood_zip_od_clean %>% 
+#  mutate(
+#    origin = ifelse(
+#      direction == "inbound",
+#      h_geocode,
+#      w_geocode
+#    ),
+#    cbg = substr(origin, 1, 12)
+#  ) %>% 
+#  left_join(
+#    full_zip_od_routed %>% 
+#      select(cbg, duration, distance)
+#  ) %>% 
+#  mutate(
+#    visits = S000 * 261
+#  )
+
+# saveRDS(full_zip_od_final, "full_zip_od_final.rds")
+
+
+full_zip_od_final <- readRDS( "full_zip_od_final.rds")
+
+```
+
+Outbound commuting routes from Redwood city:
+
+```{r}
+full_zip_od_routed %>% 
+  filter(direction =="outbound") %>%
+  st_as_sf() %>% 
+  leaflet() %>%
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>%
+  addPolylines()
+```
+
+Some of the outbound commuting routes could go as far as the Northern and Southern California. It may be interpreted that some workplace of the commuters recorded may be the main offices of the companies in the Northern and Southern California.
+Some outboud jobs scatter around the Bay areas including Daly City, Alameda, Emeryville, East Richmond Heights.
+
+```{r}
+Redwood_boundary <- readRDS("Redwood_boundary.rds")
+```
+
+```{r}
+ zip_od_route_where_to_work <-
+   Redwood_zip_od_routing  %>% 
+  filter(direction == "outbound") %>% 
+  left_join(
+     ca_cbgs, 
+    by = c( "cbg" = "GEOID")
+  ) %>% 
+  st_as_sf() 
+```
+
+```{r}
+lodes_pal <- colorNumeric(
+  palette = "YlGnBu",
+  domain =   zip_od_route_where_to_work$S000
+)
+
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data =   zip_od_route_where_to_work,
+    fillColor = ~lodes_pal(S000),
+    label = ~paste0(cbg, ": ", S000),
+    color = "black",
+    weight = 0.5,
+    fillOpacity = 0.25
+  ) %>% 
+  addPolygons(
+    data = Redwood_boundary,
+    fill = F,
+    color = "red",
+    weight = 2
+  ) %>% 
+  addLegend(
+    data =   zip_od_route_where_to_work,
+    pal = lodes_pal,
+    values = ~S000,
+    title = "Where Redwood City<br>residents work (Outbound), <br>LODES 2013~2019"
+  )
+```
+
+Inbound commuting routes to Redwood city:
+```{r}
+full_zip_od_routed %>% 
+  filter(direction=="inbound") %>%
+  st_as_sf() %>% 
+  leaflet() %>%
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>%
+  addPolylines()
+```
+
+```{r}
+ full_zip_od_final_inbound <-
+   Redwood_zip_od_routing  %>% 
+  filter(direction == "inbound") %>% 
+  left_join(
+     ca_cbgs, 
+    by = c( "cbg" = "GEOID")
+  ) %>% 
+  st_as_sf() 
+```
+
+```{r}
+lodes_pal <- colorNumeric(
+  palette = "YlGnBu",
+  domain =   full_zip_od_final_inbound$S000
+)
+
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data =   full_zip_od_final_inbound,
+    fillColor = ~lodes_pal(S000),
+    label = ~paste0(cbg, ": ", S000),
+    color = "black",
+    weight = 0.5,
+    fillOpacity = 0.25
+  ) %>% 
+  addPolygons(
+    data = Redwood_boundary,
+    fill = F,
+    color = "red",
+    weight = 2
+  ) %>% 
+  addLegend(
+    data =   full_zip_od_final_inbound,
+    pal = lodes_pal,
+    values = ~S000,
+    title = "Number of jobs (Inbound)<br>in Redwood City,<br>LODES 2013~2019)"
+  )
+```
+
+The mapping of inbound commuting routes showed that many more jobs are for commuters coming from other regions of CA as compared to the outbound case, showing that more people come to Redwood City for work.  A lot of inbound commuters are coming from southern parts of Bay areas such as San Jose, and northern parts such as Oakland, San Francisco.
+
+
+```{r}
+full_zip_od_final_sum <-
+  full_zip_od_final  %>%
+  group_by(direction, year) %>%
+  summarise_at(vars(S000:SI03,visits),sum,na.rm=T)
+```
+
+```{r}
+ggplot(full_zip_od_final_sum, aes(x=year, y=visits, group=direction))+
+  geom_line(aes(stat='identity',linetype = direction, color=direction))
+```
+
+Inbound visits are much greater than outbound. It may means that Redwood City attracts more commuters to work here than go working outside of the city. Both inbound and outbound visits increase with year, especially for inbound which has a sharp increase in visits after 2017.
+```{r}
+full_zip_od_final_mean <-
+  full_zip_od_final  %>%
+  group_by(direction, year) %>%
+  summarise(mean_distance=mean(distance,na.rm=T),
+            mean_duration=mean(duration,na.rm=T)
+  )
+```
+
+```{r}
+ggplot(full_zip_od_final_mean, aes(x=year, y=mean_distance, group=direction))+
+  geom_line(aes(stat='identity',linetype = direction, color=direction))
+```
+
+Inbound commuters tend to travel much further than outbound. Both inbound and outbound routing distance decrease with year, especially for inbound. This may be possibly interpreted as the inbound traffic condition is improved due to new or shorter available substitute routes, and hence reduce the commuting distance. The other possible explanation is the behavior change that inbound commuters tend to prefer to live closer to the workplace instead of traveling too far. 
+
+```{r}
+ggplot(full_zip_od_final_mean, aes(x=year, y=mean_duration, group=direction))+
+  geom_line(aes(stat='identity',linetype = direction, color=direction))
+```
+
+
+Route duration shares the similar patterns as the commuting distance as mentioned earlier.
+The associated inbound commuting duration is greater than outbound. Both inbound and outbound duration for each commuting route tends to have a decreasing trend with year, particularly for inbound.
+
+
+```{r}
+full_zip_od_final_sum %>% 
+  ggplot(
+    aes(
+      x = year,
+      y = S000
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = direction
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Total number of jobs", title = "Total number of jobs for inbound/outbound\nin Redwood City, 2013 to 2019", color = "Traffic Type") + 
+  scale_linetype_manual(labels = c("Inbound","Outbound"))
+```
+
+It is shown that the numbers of jobs for inbound are always much higher than for outbound. The numbers of jobs for both inbound and outbound increase with year, especially for inbound in 2018 and 2019.
+
+```{r}
+plot <- full_zip_od_final_sum  %>%
+  select(!starts_with("SI")) %>%
+  select(!starts_with("SE")) %>% 
+  select(!S000) %>%
+     pivot_longer(c("SA01","SA02","SA03"),
+     names_to = "variable",
+     values_to = "Total_number_of_jobs"
+) %>%
+  mutate(
+  Age =ifelse(variable == "SA01","Age 29",
+       ifelse(variable == "SA02", "Age 30 to 54",
+       "Age 55 or older" ))) %>%
+  select(!variable)
+```
+
+```{r}
+  plot %>% 
+  ggplot(
+    aes(
+      x = year,
+      y = Total_number_of_jobs
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Age,
+      linetype = direction
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Total number of jobs", title = "Total number of jobs by age groups in Redwood City,\n2013 to 2019", color ="Age group", linetype = "Traffic type") +
+  scale_linetype_manual(values = c("solid","dotted"), labels = c("Inbound","Outbound"))
+```
+
+The number of jobs increase with year across all  age groups both for inbound and outbound commuters.
+Inbound commuters aged 30 to 54 has the highest number of jobs among all, particularly in 2018 and 2019.
+
+Outbound commuters are mainly the group aged 30 to 54. Younger (aged 29 or under) and older (aged 55 or more) groups have lower number of jobs for outbound.
+
+```{r}
+plot <- full_zip_od_final_sum  %>%
+  select(!starts_with("SI")) %>%
+  select(!starts_with("SA")) %>% 
+  select(!S000) %>%
+     pivot_longer(c("SE01","SE02","SE03"),
+     names_to = "variable",
+     values_to = "Total_number_of_jobs"
+) %>%
+  mutate(
+  Earnings =ifelse(variable == "SE01","$1250 or less",
+       ifelse(variable == "SE02", "$1251 ~ $3333",
+       "> $3333" ))) %>%
+  select(!variable)
+```
+
+```{r}
+  plot %>% 
+  ggplot(
+    aes(
+      x = year,
+      y = Total_number_of_jobs
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Earnings,
+      linetype = direction
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Total number of jobs", title = "Total number of jobs by earnings in Redwood City,\n2013 to 2019", color ="Earnings", linetype = "Traffic type") +
+  scale_linetype_manual(values = c("solid","dotted"), labels = c("Inbound","Outbound"))
+
+```
+
+
+The number of jobs increase with year for both inbound and outbound commuter group with the highest earnings greater than $3333, in particular for inbound commuters in 2018 and 2019. The number of jobs mildly decrease roughly after 2016 for the other groups. It may imply that certain types of jobs with higher pay are offered increasingly with year. 
+
+```{r}
+plot <- full_zip_od_final_sum  %>%
+  select(!starts_with("SE")) %>%
+  select(!starts_with("SA")) %>% 
+  select(!S000) %>%
+     pivot_longer(c("SI01","SI02","SI03"),
+     names_to = "variable",
+     values_to = "Total_number_of_jobs"
+) %>%
+  mutate(
+  Industry =ifelse(variable == "SI01","Goods producing",
+       ifelse(variable == "SI02", "Trade,Transportation,Utilities",
+       "All other services" ))) %>%
+  select(!variable)
+```
+
+```{r}
+  plot %>% 
+  ggplot(
+    aes(
+      x = year,
+      y = Total_number_of_jobs
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Industry,
+      linetype = direction
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Total number of jobs", title = "Total number of jobs by industry in Redwood City,\n2013 to 2019", color ="Industry", linetype = "Traffic type") +
+  scale_linetype_manual(values = c("solid","dotted"), labels = c("Inbound","Outbound"))
+```
+
+The number of jobs increase with year for both inbound and outbound commuting group working in the category of all other services, especially for inbound commuters in 2018 and 2019. The number of jobs mildly decrease roughly after 2014 for the commuting group working in goods producing industries. The remaining 3 groups maintain pretty much constant levelin the number of jobs.
+
+```{r}
+Redwood_boundary <- readRDS("Redwood_boundary.rds")
+```
+
+```{r}
+acs_vars_2019_5yr <-
+  readRDS("acs_vars_2019_5yr.rds")
+```
+
+```{r}
+# travel_time_mode <-
+#  counties("CA", cb = T, progress_bar = F) %>%
+#  pull(COUNTYFP) %>% 
+#  map_dfr(function(x){
+#    getCensus(
+#      name = "acs/acs5",
+#      vintage = 2019,
+#      region = "tract:*",
+#      regionin = paste0("state:06+county:", x),
+#      vars = "group(B08134)"
+#    )
+#  }) %>% 
+#  mutate(
+#    GEOID_tract =
+#      paste0(state,county,tract)
+#  ) %>%
+#  filter(GEOID_tract %in% Redwood_zip_od_routing $tract) %>% 
+#  select(!c(GEO_ID,state,county,tract,block_group,NAME) & !ends_with(c("EA","MA","M"))) %>%
+#  pivot_longer(
+#    ends_with("E"),
+#    names_to = "variable",
+#    values_to = "estimate"
+#  ) %>%
+#  left_join(
+#    acs_vars_2019_5yr %>% 
+#      select(name, label), 
+#    by = c("variable" = "name")
+#  ) %>% 
+#  select(-variable) %>% 
+#  separate(
+#    label,
+#    into = c(NA, NA, "total", "mode", "carpool", "time"),
+#    sep = "!!"
+#  ) %>% 
+#  mutate(
+#    mode = case_when(
+#      total %in% c(
+#       "Less than 10 minutes",
+#        "10 to 14 minutes",
+#        "15 to 19 minutes",
+#        "20 to 24 minutes",
+#        "25 to 29 minutes",
+#        "30 to 34 minutes",
+#        "35 to 44 minutes",
+#        "45 to 59 minutes",
+#        "60 or more minutes"
+#      ) ~ "Total",
+#      mode == "Drove alone:" ~ mode,
+#      carpool %in% c(
+#        "In 2-person carpool:",
+#        "In 3-or-more-person carpool:"
+#      ) ~ carpool
+#    ),
+#    time = case_when(
+#      mode == "Total" ~ total,
+#      mode == "Drove alone:" ~ carpool,
+#     mode == carpool ~ time
+#    )
+#  ) %>% 
+#  filter(!is.na(time)) %>% 
+#  select(-total, -carpool) %>% 
+#  pivot_wider(
+#    names_from = mode,
+#    values_from = estimate
+#  ) %>% 
+#  mutate(
+#    perc_veh1 = `Drove alone:`/Total,
+#    perc_veh2 = `In 2-person carpool:`/Total,
+#    perc_veh3 = `In 3-or-more-person carpool:`/Total
+#  )
+```
+
+```{r}
+# saveRDS(travel_time_mode,"travel_time_mode.rds")
+```
+
+```{r}
+travel_time_mode <- readRDS("travel_time_mode.rds")
+```
+
+```{r}
+travel_time_mode_tract <-
+travel_time_mode %>%
+    rename(
+      Person_1 = `Drove alone:`,
+      Person_2 = `In 2-person carpool:`,
+      Person_3 = `In 3-or-more-person carpool:`
+  ) %>%
+  group_by(time) %>%
+  summarize(
+    Total = sum(Total, na.rm=T),
+    Person_1  = sum(Person_1, na.rm=T), 
+    Person_2  = sum(Person_2, na.rm=T),
+    Person_3  = sum(Person_3, na.rm=T)
+  )
+```
+
+```{r}
+travel_time_mode_tract_long <-
+  travel_time_mode_tract %>%  
+  pivot_longer(
+    c("Total","Person_1", "Person_2","Person_3"),
+     names_to = "Commuters",
+     values_to = "Count"
+) 
+
+travel_time_mode_tract_long$time <-
+  str_replace_all(travel_time_mode_tract_long$time, "minutes", "") 
+travel_time_mode_tract_long$time <-
+  str_replace_all(travel_time_mode_tract_long$time, " to ", "~")
+travel_time_mode_tract_long$time <-
+  str_replace_all(travel_time_mode_tract_long$time, "Less than", "<")
+
+# saveRDS(travel_time_mode_tract_long, "travel_time_mode_tract_long.rds")
+```
+
+```{r}
+ggplot(travel_time_mode_tract_long, aes(x=time, y=Count/1000000))+
+  geom_bar(stat='identity', fill="salmon2")+
+  facet_wrap(~Commuters) + coord_flip()
+```
+
+
+For traveling mode, it is assumed that the distribution of modes we see here for commute trips will be similar enough to the distribution of modes for trips overall. The result shows the largest amount of commute trips are drove alone. Carpooling with 2 or 3 persons are really low. Commuting routes with duration time between 25~29 is the fewest case among all, followed by 35~44, and 45~59. 
+
+```{r}
+Redwood_trips <-
+  full_zip_od_final %>% 
+  mutate(
+    tract = substr(origin, 1, 11),
+    time = case_when(
+      duration < 10 ~ "Less than 10 minutes",
+      duration < 15 ~ "10 to 14 minutes",
+      duration < 20 ~ "15 to 19 minutes",
+      duration < 25 ~ "20 to 24 minutes",
+      duration < 30 ~ "25 to 29 minutes",
+      duration < 35 ~ "30 to 34 minutes",
+      duration < 45 ~ "35 to 44 minutes",
+      duration < 60 ~ "45 to 59 minutes",
+      TRUE ~ "60 or more minutes"
+    )
+  ) %>% 
+  left_join(
+    travel_time_mode %>% 
+      select(
+        tract = GEOID_tract,
+        time,
+        perc_veh1,
+        perc_veh2,
+        perc_veh3
+      ),
+    by = c("tract", "time")
+  ) %>% 
+  mutate(
+    vehicles = 
+      visits * perc_veh1 + 
+      visits * perc_veh2 / 2 +
+      visits * perc_veh3 / 3,
+    vmt = vehicles * distance * 2
+  )
+```
+
+```{r}
+Redwood_trips_year <-
+  Redwood_trips  %>%
+  group_by(direction, year,cbg) %>%
+  summarise(
+    S000=sum(S000),
+    SA01=sum(SA01),
+    SA02=sum(SA02),
+    SA03=sum(SA03),
+    SE01=sum(SE01),
+    SE02=sum(SE02),
+    SE03=sum(SE03),
+    SI01=sum(SI01),
+    SI02=sum(SI02),
+    SI03=sum(SI03),
+    vmt =sum(vmt, na.rm = T),
+    vehicle =sum(vehicles, na.rm = T),
+    duration=mean(duration, na.rm = T),
+    distance=mean(distance, na.rm = T),
+    visits=mean(visits, na.rm = T)
+)
+```
+
+```{r}
+Redwood_trips_direction_year <-
+  Redwood_trips  %>%
+  group_by(direction, year) %>%
+  summarise(
+    S000=sum(S000),
+    SA01=sum(SA01),
+    SA02=sum(SA02),
+    SA03=sum(SA03),
+    SE01=sum(SE01),
+    SE02=sum(SE02),
+    SE03=sum(SE03),
+    SI01=sum(SI01),
+    SI02=sum(SI02),
+    SI03=sum(SI03),
+    vmt =sum(vmt, na.rm = T),
+    vehicle =sum(vehicles, na.rm = T),
+    duration=mean(duration, na.rm = T),
+    distance=mean(distance, na.rm = T),
+    visits=sum(visits, na.rm = T)
+)
+```
+
+```{r}
+emfac <- 
+  read_csv("EMFAC2021.csv", skip = 8) %>% 
+  transmute(
+    Category = `Vehicle Category`,
+    Fuel_Type = Fuel,
+    Percent_Trips = Trips/sum(Trips),
+    Percent_Miles = `Total VMT`/sum(`Total VMT`),
+    `MTCO2_Running_Exhaust` = CO2_RUNEX/`Total VMT`,
+    `MTCO2_Start_Exhaust` = CO2_STREX/Trips
+  )
+```
+
+```{r}
+emfac
+```
+
+```{r}
+# Redwood_trips_2019 <-
+# Redwood_trips %>%
+#  filter(direction=="outbound", 
+#         year==2013)
+
+# Redwood_trips_ghg_2019_O <-
+#  emfac %>% 
+#  mutate(
+#    year=2019,
+#    trips = Percent_Trips *  sum(Redwood_trips_2019$visits, na.rm = T),
+#    vmt = Percent_Miles * sum(Redwood_trips_2019$vmt, na.rm = T),
+#    ghg = vmt*MTCO2_Running_Exhaust + trips*MTCO2_Start_Exhaust*2
+#  )
+
+# saveRDS(Redwood_trips_ghg_2019_O,"Redwood_trips_ghg_2019_O.rds")
+```
+
+```{r}
+# Redwood_trips_ghg_full_I <-
+#   rbind(
+#   Redwood_trips_ghg_2013_I,Redwood_trips_ghg_2014_I,
+#    Redwood_trips_ghg_2015_I,Redwood_trips_ghg_2016_I,
+#   Redwood_trips_ghg_2017_I,Redwood_trips_ghg_2018_I,
+#    Redwood_trips_ghg_2019_I) %>%
+#  mutate(
+#    direction = "inbound"
+#    )
+
+# saveRDS(Redwood_trips_ghg_full_I, "Redwood_trips_ghg_full_I.rds")
+```
+
+```{r}
+# Redwood_trips_ghg_full <-
+#   rbind(
+#   Redwood_trips_ghg_full_O,Redwood_trips_ghg_full_I)
+
+# saveRDS(Redwood_trips_ghg_full, "Redwood_trips_ghg_full.rds")
+```
+
+```{r}
+# Redwood_trips_ghg_full_I <-
+#   rbind(
+#   Redwood_trips_ghg_2013_I,Redwood_trips_ghg_2014_I,
+#    Redwood_trips_ghg_2015_I,Redwood_trips_ghg_2016_I,
+#   Redwood_trips_ghg_2017_I,Redwood_trips_ghg_2018_I,
+#    Redwood_trips_ghg_2019_I)
+
+# saveRDS(Redwood_trips_ghg_full_I, "Redwood_trips_ghg_full_I.rds")
+```
+
+```{r}
+Redwood_trips_ghg_full_temp <- readRDS("Redwood_trips_ghg_full.rds")
+```
+
+```{r}
+Redwood_trips_ghg_full_temp  %>% 
+  filter(direction == "outbound") %>%
+  ggplot(
+    aes(
+      x = year,
+      y = ghg
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Fuel_Type,
+      linetype = Category
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "ghg",
+  title = "Outbound GHG of Vehical Emissions in Redwood City, 2013 to 2019", 
+color ="Fuel Type" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("LDT1", "LDA"))
+```
+
+The result confirms that vehicles using diesel and gasoline have much higher GHG emissions than electricity, as we have already known that fuel types attribute to different levels of emissions.
+Vehicle type is another factor for emissions. For our case, LDT1 has always lower emissions than LDA. Moreover, LDT1 using diesel has even lower emissions. 
+
+```{r}
+Redwood_trips_ghg_full_temp  %>%
+   filter(direction == "inbound") %>%
+  ggplot(
+    aes(
+      x = year,
+      y = ghg
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Fuel_Type,
+      linetype = Category
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "ghg",
+  title = "Inbound GHG of Vehical Emissions in Redwood City, 2013 to 2019", 
+color ="Fuel Type" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("LDT1", "LDA"))
+```
+
+```{r}
+Redwood_trips_ghg_full <-
+Redwood_trips_ghg_full_temp %>%
+  group_by(year,Category, Fuel_Type) %>%
+summarise(
+    ghg =sum(ghg, na.rm = T),
+    trips =sum(trips, na.rm = T),
+    vmt=sum(vmt, na.rm = T)
+)
+```
+
+```{r}
+Redwood_trips_ghg_full  %>%
+  ggplot(
+    aes(
+      x = year,
+      y = ghg
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Fuel_Type,
+      linetype = Category
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "ghg",
+  title = "GHG of Vehical Emissions in Redwood City, 2013 to 2019", 
+color ="Fuel Type" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("LDT1", "LDA"))
+```
+
+```{r}
+Redwood_trips_ghg_full  %>% 
+  ggplot(
+    aes(
+      x = year,
+      y = trips
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Fuel_Type,
+      linetype = Category
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "Trips",
+  title = "Trips of Vehical Emissions in Redwood City, 2013 to 2019", 
+color ="Fuel Type" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("LDT1", "LDA"))
+```
+
+A large majority of trips are attributed to LDT1 using gasoline. It is suggested that by using diesel instead of gas may reduce emissions further, as we mentioned earlier. 
+
+```{r}
+Redwood_trips_ghg_full  %>% 
+  ggplot(
+    aes(
+      x = year,
+      y = vmt
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = Fuel_Type,
+      linetype = Category
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "VMT",
+  title = "Commuting VMT in Redwood City, 2013 to 2019", 
+color ="Fuel Typ" ) + scale_linetype_manual(values = c("solid","dotted"), labels = c("LDT1", "LDA"))
+```
+
+Since LDT1 using gasoline is the mainstream of commuting vehicles under the EMFAC assumption made for this case, the VMT of commuting trips are, of course, attributed to LDT1 using gasoline.
+
+```{r}
+Redwood_trips_ghg_full_year <-
+Redwood_trips_ghg_full %>%
+group_by(year) %>%
+  summarise_at(vars(trips,vmt,ghg),sum, na.rm=T)
+```
+
+```{r}
+Redwood_trips_ghg_Fuel_year <-
+Redwood_trips_ghg_full %>%
+group_by(Fuel_Type,year) %>%
+  summarise_at(vars(trips,vmt,ghg),sum, na.rm=T)
+```
+
+```{r}
+Redwood_vehical_emissions <-
+Redwood_trips_ghg_Fuel_year %>%
+  mutate(Year=year,
+         Emissions=ghg
+) %>% select(Year, Emissions) %>%
+  rename(Class=`Fuel_Type`) %>% mutate(Emission_Source="Vehicle")
+```
+
+```{r}
+Redwood_pge_sum <- readRDS("Redwood_pge_sum.rds")
+```
+
+```{r}
+Redwood_building_emissions <-
+Redwood_pge_sum %>%
+ rename(Class=`CUSTOMERCLASS`,
+        Emissions=TOTALTCO2E,  
+        Year=YEAR 
+) %>%  mutate(Emission_Source="Building") %>%
+  select(Emission_Source, Year, Emissions) 
+```
+
+```{r}
+Redwood_emissions <- 
+rbind(Redwood_vehical_emissions, Redwood_building_emissions)
+
+saveRDS(Redwood_emissions, "Redwood_emission.rds" )
+```
+
+# PART II
+
+```{r}
+HDD_chart <- 
+  read_csv("HDD_chart.csv", skip = 10) %>%
+  filter(year >= 2013,year <= 2019) %>%
+  mutate(
+    HDD = `CanESM2 (Average)`
+  )  %>%
+  select(year, HDD)
+```
+
+```{r}
+CDD_chart <- 
+  read_csv("CDD_chart.csv", skip = 10) %>%
+  filter(year >= 2013,year <= 2019) %>%
+  mutate(
+    CDD = `CanESM2 (Average)`
+  )  %>%
+  select(year, CDD)
+```
+
+```{r}
+# path <- "G:/Shared drives/SFBI/Data Library/PG&E/"
+```
+
+```{r}
+# zip <- zctas %>% 
+#  filter(GEOID10 == "94063")
+
+# saveRDS(zip, "zip.rds")
+```
+
+```{r}
+# ca_cbgs <- block_groups("CA", cb = T, progress_bar = F)
+
+# ca_cbgs <-readRDS("ca_blockgroups.rds")
+
+# Redwood_boundary <- places("CA", cb = T, progress_bar = F) %>% 
+#  filter(NAME == "Redwood City")
+# saveRDS(Redwood_boundary,"Redwood_boundary.rds")
+
+# Redwood_boundary  <- readRDS("Redwood_boundary.rds")
+
+# Redwood_cbgs <- 
+#  ca_cbgs %>% 
+#  st_centroid() %>% 
+#  .[Redwood_boundary, ] %>% 
+#  st_drop_geometry() %>% 
+#  left_join(ca_cbgs %>% select(GEOID)) %>% 
+#  st_as_sf()
+
+# saveRDS(Redwood_cbgs,"Redwood_cbgs.rds")
+
+Redwood_cbgs  <- readRDS("Redwood_cbgs.rds")
+```
+Mapping of Redwood City in census block group levels
+```{r}
+leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    data = Redwood_cbgs,
+    fill = F
+  )
+```
+
+```{r}
+# pge_data <- 
+#  2013:2019 %>% 
+# map_dfr(function(yr){
+    
+#    factor <- 
+#      pge_elec_emissions_factor %>% 
+#      filter(year == yr) %>% 
+#      pull(factor)
+    
+#    1:4 %>% 
+#      map_dfr(function(quarter){
+        
+#        c("Electric","Gas") %>% 
+#          map_dfr(function(type){
+            
+#            filename <- 
+#              paste0(path,
+#                "PGE_",
+#                yr,
+#                "_Q",
+#                quarter,
+#                "_",
+#                type,
+#                "UsageByZip.csv"
+#              )
+            
+#            temp <- read_csv(filename)
+            
+#            if(yr == 2017 & quarter == 4) {
+#              temp <- 
+#                temp %>% 
+#                filter(MONTH != 9)
+#            }
+            
+#            temp <-
+#              temp %>% 
+#              rename_all(toupper) %>% 
+#              mutate(
+#                TOTALKBTU = ifelse(
+#                  substr(CUSTOMERCLASS,1,1) == "E",
+#                  TOTALKWH * 3.412,
+#                  TOTALTHM * 99.976
+#                ),
+#                TOTALTCO2E = ifelse(
+#                  substr(CUSTOMERCLASS,1,1) == "E",
+#                  TOTALKWH/1000 * factor * 0.000453592,
+#                  TOTALTHM * 0.00531
+#                )
+#              ) %>% 
+#              select(
+#                ZIPCODE,
+#                YEAR,
+#                MONTH,
+#                CUSTOMERCLASS,
+#                TOTALKBTU,
+#                TOTALTCO2E,
+#                TOTALCUSTOMERS
+#              )
+            
+#          })
+        
+#      })
+    
+#  })
+
+# saveRDS(pge_data, "pge_data.rds")
+```
+
+```{r}
+pge_data <- readRDS( "pge_data.rds")
+```
+
+```{r}
+# lodes_wac <- readRDS("lodes_wac.rds")
+```
+
+```{r}
+# us_zips <- 
+#  zctas(cb = T, progress_bar = F)
+
+# saveRDS(us_zips, "us_zips.rds") 
+
+# us_zips <- readRDS( "us_zips.rds")
+
+# SM_zips <- 
+#   us_zips %>% 
+#   st_centroid() %>% 
+#  .[counties("CA", cb = T, progress_bar = F) %>% filter(NAME == "San Mateo"), ] %>% 
+#  st_drop_geometry() %>% 
+#  left_join(us_zips %>% select(GEOID10)) %>% 
+#  st_as_sf() %>% 
+#  st_transform(4326)
+
+# saveRDS(SM_zips, "SM_zips.rds")
+```
+
+```{r}
+# Redwood_zips <- 
+# SM_zips %>%
+#  filter( (GEOID10 >= 94061 ) & (GEOID10 <= 94065))
+
+# saveRDS(Redwood_zips, "Redwood_zips.rds")
+
+Redwood_zips <- readRDS( "Redwood_zips.rds")
+```
+
+```{r}
+Redwood_zip_ACS5_2013_2019_pop <- readRDS("Redwood_zip_ACS5_2013_2019_pop.rds") %>%
+  mutate(
+    GEO_ID = GEO_ID %>% as.character()
+    ) %>% arrange(GEO_ID, year) %>%
+     select(population) 
+```
+
+```{r}
+# Redwood_lodes_wac <- 2013:2019 %>% 
+#   map_dfr(function(year){
+    
+#    print(year)
+    
+#    temp <- read_csv(paste0("G:/My Drive/LODES_WAC/ca_wac_S000_JT01_", year, ".csv.gz"))  %>% 
+#      filter(
+#        w_geocode %in% Redwood_zip_blocks$GEOID10
+#      ) %>%  mutate(year = year)
+    
+# saveRDS(temp, paste0("temp_od_", year, ".rds"))
+    
+#    return(temp)
+#  })
+```
+
+```{r}
+Redwood_lodes_wac <- readRDS("Redwood_lodes_wac.rds")
+```
+
+```{r}
+ RW_94061_blocks <- 
+  readRDS("RW_94061_blocks.rds") 
+
+ RW_94062_blocks <- 
+   readRDS("RW_94062_blocks.rds") 
+
+ RW_94063_blocks <- 
+   readRDS("RW_94063_blocks.rds") 
+
+ RW_94065_blocks <- 
+  readRDS("RW_94065_blocks.rds") 
+```
+
+```{r}
+Redwood_lodes_wac_1 <-
+  Redwood_lodes_wac %>%
+  filter(w_geocode %in% RW_94061_blocks$GEOID10)%>% mutate(zipcode="94061") %>% select(-createdate) %>%
+group_by(zipcode, year) %>%
+summarise_at(vars(C000:CFS05),~sum(.,na.rm=T)) %>% select (zipcode, year, C000) 
+
+Redwood_lodes_wac_2 <-
+  Redwood_lodes_wac %>%
+  filter(w_geocode %in% RW_94062_blocks$GEOID10)%>% mutate(zipcode="94062") %>% select(-createdate) %>%
+group_by(zipcode, year) %>%
+summarise_at(vars(C000:CFS05),~sum(.,na.rm=T)) %>% select (zipcode, year, C000) 
+
+Redwood_lodes_wac_3 <-
+  Redwood_lodes_wac %>%
+  filter(w_geocode %in% RW_94063_blocks$GEOID10)%>% mutate(zipcode="94063") %>% select(-createdate) %>%
+group_by(zipcode, year) %>%
+summarise_at(vars(C000:CFS05),~sum(.,na.rm=T)) %>% select (zipcode, year, C000) 
+
+Redwood_lodes_wac_5 <-
+  Redwood_lodes_wac %>%
+  filter(w_geocode %in% RW_94065_blocks$GEOID10)%>% mutate(zipcode="94065") %>% select(-createdate) %>%
+group_by(zipcode, year) %>%
+summarise_at(vars(C000:CFS05),~sum(.,na.rm=T)) %>% select (zipcode, year, C000)
+
+```
+
+```{r}
+Redwood_lodes_wac_C000 <-
+  rbind(Redwood_lodes_wac_1, Redwood_lodes_wac_2,          Redwood_lodes_wac_3,Redwood_lodes_wac_5) %>% mutate(jobs= C000)
+
+saveRDS(Redwood_lodes_wac_C000,"Redwood_lodes_wac_C000.rds")
+```
+
+```{r}
+Redwood_pge_data <-
+  pge_data %>% 
+  filter(ZIPCODE %in% Redwood_zips$GEOID) %>% 
+  filter(CUSTOMERCLASS %in% c(
+    "Elec- Commercial",
+    "Elec- Residential",
+    "Gas- Commercial",
+    "Gas- Residential"
+  )) %>% 
+  mutate(
+    ENERGYTYPE = substr(CUSTOMERCLASS,1,1),
+    TYPE = substr(CUSTOMERCLASS,6,nchar(CUSTOMERCLASS)) %>% str_trim()
+)
+
+saveRDS(Redwood_pge_data, "Redwood_pge_data.rds" )
+```
+
+```{r}
+Redwood_pge_sum_zip <-
+Redwood_pge_data %>% 
+  group_by(ZIPCODE, CUSTOMERCLASS, YEAR) %>% 
+  summarize(
+    TOTALKBTU = sum(TOTALKBTU, na.rm=T),
+    TOTALTCO2E = sum(TOTALTCO2E, na.rm=T), 
+    TOTALCUSTOMERS = mean(TOTALCUSTOMERS, na.rm=T)
+  )
+saveRDS(Redwood_pge_sum_zip,"Redwood_pge_sum_zip.rds")
+```
+
+```{r}
+ggplot(Redwood_pge_sum_zip, aes(x=ZIPCODE, y=TOTALKBTU))+
+  geom_bar(stat='identity', fill="forest green")+
+  facet_wrap(~CUSTOMERCLASS)
+```
+
+```{r}
+ggplot(Redwood_pge_sum_zip, aes(x=CUSTOMERCLASS, y=TOTALKBTU))+
+  geom_bar(stat='identity', fill="forest green")+
+  facet_wrap(~ZIPCODE)
+```
+
+Energy usage in kBtu varies across ZIP code regions in Redwood City. The ZIP code region 94063 are involved with more commercial energy use both for electricity and gas. But the rest of the ZIP code regions are low in commercial energy use.
+While the ZIP code regions 94062 and 94061 should be mainly residential and have higher residential energy use both for electricity and gas.
+
+```{r}
+ggplot(Redwood_pge_sum_zip, aes(x=ZIPCODE, y=TOTALTCO2E))+
+  geom_bar(stat='identity', fill="orchid3")+
+  facet_wrap(~CUSTOMERCLASS)
+```
+
+The GHG in TCO2E shares the same pattern of Energy usage in kBtu as mentioned above, which also varies across ZIP code regions. The ZIP code region 94063 are involved with more GHG due to commercial energy use both for electricity and gas. But the rest of the ZIP code regions are low in GHG from commercial energy use.
+While the ZIP code regions 94062 and 94061 should be mainly residential and have higher GHG from residential energy use both for electricity and gas.
+
+```{r}
+Redwood_pge_sum <-
+Redwood_pge_sum_zip %>% 
+  group_by(CUSTOMERCLASS, YEAR) %>% 
+  summarize(
+    TOTALKBTU = sum(TOTALKBTU, na.rm=T),
+    TOTALTCO2E = sum(TOTALTCO2E, na.rm=T), 
+    TOTALCUSTOMERS = mean(TOTALCUSTOMERS, na.rm=T)
+  )
+saveRDS(Redwood_pge_sum,"Redwood_pge_sum.rds")
+```
+
+```{r}
+Redwood_pge_E_residential <-
+   Redwood_pge_sum_zip %>%
+   filter(CUSTOMERCLASS == "Elec- Residential") %>% 
+  mutate(
+    ZIPCODE = ZIPCODE %>% as.character()  ) %>% cbind(Redwood_zip_ACS5_2013_2019_pop) 
+```
+
+```{r}
+Redwood_pge_G_residential <-
+   Redwood_pge_sum_zip %>%
+   filter(CUSTOMERCLASS == "Gas- Residential") %>% 
+  mutate(
+    ZIPCODE = ZIPCODE %>% as.character()  ) %>% cbind(Redwood_zip_ACS5_2013_2019_pop) 
+```
+
+```{r}
+Redwood_pge_residential <-
+  rbind(Redwood_pge_E_residential,Redwood_pge_G_residential) %>%
+mutate(
+  TOTALKBTU_per_resident= TOTALKBTU/population,
+  TOTALTCO2E_per_resident=TOTALTCO2E/population
+)
+
+saveRDS(Redwood_pge_residential,"Redwood_pge_residential.rds")
+```
+
+```{r}
+ggplot(Redwood_pge_residential, aes(x=ZIPCODE, y=TOTALKBTU_per_resident))+
+  geom_bar(stat='identity', fill="lightsteelblue3")+
+  facet_wrap(~CUSTOMERCLASS)
+```
+
+After normalizing the residential energy use in kBtu by the population, in general, each resident has more gas usage than electricity for all 4 ZIP code regions. Zip code region 94063 has the lowest usage both in electricity and gas. On the contrary, the other 3 regions has higher residential usage in energy both in electricity and gas.
+
+```{r}
+ggplot(Redwood_pge_residential, aes(x=ZIPCODE, y=TOTALTCO2E_per_resident))+
+  geom_bar(stat='identity', fill="salmon2")+
+  facet_wrap(~CUSTOMERCLASS)
+```
+
+After normalizing the GHG in TCO2E by the population,  the GHG shares the same pattern as the residential energy usage in kBtu. Each resident is attributed to higher GHG from gas usage than electricity for all 4 ZIP code regions. Zip code region 94063 has the lowest GHG both from electricity and gas. On the contrary, the other 3 regions has higher GHG from residential energy usage both in electricity and gas.
+
+
+```{r}
+Redwood_pge_E_commercial <-
+   Redwood_pge_sum_zip %>%
+   filter(CUSTOMERCLASS == "Elec- Commercial") %>% 
+  mutate(
+    ZIPCODE = ZIPCODE %>% as.character()  ) %>% 
+   cbind(Redwood_lodes_wac_C000) 
+```
+
+```{r}
+Redwood_pge_G_commercial <-
+   Redwood_pge_sum_zip %>%
+   filter(CUSTOMERCLASS == "Gas- Commercial") %>% 
+  mutate(
+    ZIPCODE = ZIPCODE %>% as.character()  ) %>% cbind(Redwood_lodes_wac_C000) 
+```
+
+```{r}
+Redwood_pge_commercial <-
+  rbind(Redwood_pge_E_commercial,Redwood_pge_G_commercial) %>%
+mutate(
+  TOTALKBTU_per_job= TOTALKBTU/jobs,
+  TOTALTCO2E_per_job=TOTALTCO2E/jobs
+)
+
+saveRDS(Redwood_pge_commercial,"Redwood_pge_commercial.rds")
+```
+
+```{r}
+ggplot(Redwood_pge_commercial, aes(x=ZIPCODE, y=TOTALKBTU_per_job))+
+  geom_bar(stat='identity', fill="lightsteelblue3")+
+  facet_wrap(~CUSTOMERCLASS)
+```
+
+After normalizing the commercial energy use in kBtu by the number of jobs, the job in the ZIP code region 94063 consume more electricity than gas. But for the other two regions, 94061 and 94062, there is higher commercial usage per job in gas than electricity. one region 94065 has the lowest energy usage per job. Hence, the energy usage intensity varies across regions if only normalizing the number of jobs.
+
+
+```{r}
+ggplot(Redwood_pge_commercial, aes(x=ZIPCODE, y=TOTALTCO2E_per_job))+
+  geom_bar(stat='identity', fill="salmon2")+
+  facet_wrap(~CUSTOMERCLASS)
+```
+
+After normalizing the GHG in TCO2E by the number of jobs, the job in the ZIP code region 94063 generate more GHG from electricity than gas. But for the other two regions, 94061 and 94062, there is higher GHG generated per job from commercial usage in gas than electricity. one region 94065 has the lowest GHG from commercial energy usage per job. Hence, the GHG intensity varies across regions if only normalizing the number of jobs.
+
+```{r}
+Redwood_pge_residential_year <-
+Redwood_pge_residential %>% 
+  group_by(CUSTOMERCLASS, YEAR) %>%
+  summarize(
+    TOTALKBTU = sum(TOTALKBTU, na.rm=T),
+    TOTALTCO2E = sum(TOTALTCO2E, na.rm=T), 
+    population = sum(population, na.rm=T),
+    TOTALCUSTOMERS = sum(TOTALCUSTOMERS, na.rm=T),
+    mean_TOTALKBTU_per_resident = mean(TOTALKBTU_per_resident, na.rm=T),
+    mean_TOTALTCO2E_per_resident = mean(TOTALTCO2E_per_resident, na.rm=T)
+)
+  
+saveRDS(Redwood_pge_residential_year,"Redwood_pge_residential_year.rds")
+```
+
+```{r}
+Redwood_pge_residential_year  %>% 
+  ggplot(
+    aes(
+      x = YEAR,
+      y = mean_TOTALKBTU_per_resident
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = CUSTOMERCLASS
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "kBtus per resident",
+  title = "Redwood City Residential Building Annual Energy Use Intensity,\n 2013 to 2019", 
+color ="CUSTOMER\nCLASS" ) + scale_linetype_manual(labels = c("Residential elctricity", "Residential Gas"))
+```
+
+For the normalized energy intensity, the residential electricity intensity in kBtu is much higher than gas. The trend for electricity use intensity is decreasing with year. However, the gas use intensity reaches the lowest in 2014 and goes up gently afterwards.
+
+```{r}
+Redwood_pge_residential_year   %>% 
+  ggplot(
+    aes(
+      x = YEAR,
+      y = mean_TOTALTCO2E_per_resident
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = CUSTOMERCLASS
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "tCO2e per resident",
+  title = "Redwood City Residential Building Annual Energy Use Intensity,\n 2013 to 2019", 
+color ="CUSTOMER\nCLASS" ) + scale_linetype_manual(labels = c("Residential elctricity", "Residential Gas"))
+```
+
+The GHG intensity in TCO2E have the same pattern as for the energy intensity in kBtu after normalizing. The residential gas intensity in TCO2E is much higher than gas. The trend for electricity use intensity is decreasing with year. However, the gas use intensity in TCO2E reaches the lowest in 2014 and goes up gently afterwards.
+
+```{r}
+Redwood_pge_commercial_year <-
+Redwood_pge_commercial %>% 
+  group_by(CUSTOMERCLASS, YEAR) %>%
+  summarize(
+    TOTALKBTU = sum(TOTALKBTU, na.rm=T),
+    TOTALTCO2E = sum(TOTALTCO2E, na.rm=T), 
+    jobs = sum(jobs, na.rm=T),
+    TOTALCUSTOMERS = mean(TOTALCUSTOMERS, na.rm=T),
+    mean_TOTALKBTU_per_job = mean(TOTALKBTU_per_job, na.rm=T),
+    mean_TOTALTCO2E_per_job = mean(TOTALTCO2E_per_job, na.rm=T)
+)
+  
+saveRDS(Redwood_pge_commercial_year,"Redwood_pge_commercial_year.rds")
+```
+
+```{r}
+Redwood_pge_commercial_year  %>% 
+  ggplot(
+    aes(
+      x = YEAR,
+      y = mean_TOTALKBTU_per_job
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = CUSTOMERCLASS
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "kBtus per job",
+  title = "Redwood City Commercial Building\nAnnual Energy Use Intensity, 2013 to 2019", 
+color ="CUSTOMER\nCLASS" ) + scale_linetype_manual(labels = c("commercial elctricity", "Commercial Gas"))
+```
+
+For the normalized commercial energy intensity, both the commercial electricity and gas intensity in kBtu decrease with year, which reach the lowest in 2018 but, reversely, go up in 2019.
+Before 2017, commercial electricity intensity in kBtu is greater than gas, but it becomes opposite afterwards.
+
+```{r}
+Redwood_pge_commercial_year   %>% 
+  ggplot(
+    aes(
+      x = YEAR,
+      y = mean_TOTALTCO2E_per_job
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = CUSTOMERCLASS
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "tCO2e per job",
+  title = "Redwood City Commercial Building Annual Energy Use Intensity,\n 2013 to 2019", 
+color ="CUSTOMER\nCLASS" ) + scale_linetype_manual(labels = c("Commercial elctricity", "Residential Gas"))
+```
+
+For the commercial energy intensity in tCO2e, both the commercial electricity and gas intensity in TCO2E decrease with year, which reach the lowest in 2018 but, reversely, go up in 2019.
+Before 2017, commercial electricity intensity in kBtu is greater than gas, but it becomes opposite afterwards.
+
+```{r}
+Redwood_pge_residential_zip <-
+Redwood_pge_residential %>%
+group_by(CUSTOMERCLASS, ZIPCODE) %>%
+  summarize(
+    TOTALKBTU = mean(TOTALKBTU, na.rm=T),
+    TOTALTCO2E = mean(TOTALTCO2E, na.rm=T), 
+    TOTALCUSTOMERS = mean(TOTALCUSTOMERS, na.rm=T),
+    mean_TOTALKBTU_per_resident = mean(TOTALKBTU_per_resident, na.rm=T),
+    mean_TOTALTCO2E_per_resident = mean(TOTALTCO2E_per_resident, na.rm=T)
+)
+```
+
+```{r}
+Redwood_pge_residential_19 <-
+Redwood_pge_residential %>% 
+  filter(YEAR== 2019) %>% 
+  mutate( GEOID10 = ZIPCODE %>% as.character()
+) %>%
+  left_join(Redwood_zips) %>%
+st_as_sf()
+```
+
+Mapping of residential electricity usage (total kBtu/tCO2e), population, electricity usage intensity (kBtu/tCO2e per resident) in Redwood City in 2019 --
+The central Redwood City has higher electricity usage (total kBtu/tCO2e) and also intensity (kBtu/tCO2e per resident).
+The northern east part of Redwood City has more population, thus the electricity intensity for this region is much lower than the others as we mentioned earlier. 
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_residential_19 %>% 
+    filter(CUSTOMERCLASS == "Elec- Residential") %>%
+    pull(TOTALKBTU)
+)
+
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_residential_19 %>% 
+    filter(CUSTOMERCLASS == "Elec- Residential") %>%
+    pull(TOTALKBTU_per_resident))
+```
+
+```{r}
+Redwood_pge_residential_19   %>% 
+  filter(CUSTOMERCLASS == "Elec- Residential") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALKBTU),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALKBTU %>% signif(2),
+    group = "kBtu"
+  )  %>% 
+  addPolygons(
+    fillColor = ~pal3(TOTALKBTU_per_resident),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALKBTU_per_resident %>% signif(2),
+    group = "TOTAL kBtu/resident"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALKBTU,
+    title = "Total kBtu",
+    group = "kBtu"
+  ) %>%
+   addLegend(
+    pal = pal3,
+    values = ~TOTALKBTU_per_resident,
+    title = "TOTAL kBtu/resident",
+    group = "TOTAL kBtu/resident"
+) %>%
+  addLayersControl(
+    overlayGroups = c("kBtu", "TOTAL kBtu/resident"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Residential Electricity", position = "bottomright") %>%
+  hideGroup("TOTAL kBtu/resident")
+```
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_residential_19 %>% 
+    filter(CUSTOMERCLASS == "Elec- Residential") %>%
+    pull(TOTALTCO2E)
+)
+
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_residential_19 %>% 
+    filter(CUSTOMERCLASS == "Elec- Residential") %>%
+    pull(TOTALTCO2E_per_resident))
+```
+
+```{r}
+Redwood_pge_residential_19   %>% 
+  filter(CUSTOMERCLASS == "Elec- Residential") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALTCO2E),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E %>% signif(2),
+    group = "tCO2e"
+  )  %>% 
+   addPolygons(
+    fillColor = ~pal3(TOTALTCO2E_per_resident),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E_per_resident %>% signif(2),
+    group = "TOTAL tCO2e/resident"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALTCO2E,
+    title = "Total tCO2e",
+    group = "tCO2e"
+) %>%
+  addLegend(
+    pal = pal3,
+    values = ~TOTALTCO2E_per_resident,
+    title = "TOTAL tCO2e/resident",
+    group = "TOTAL tCO2e/resident"
+) %>%
+  addLayersControl(
+    overlayGroups = c("tCO2e","TOTAL tCO2e/resident"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Residential Electricity", position = "bottomright") %>%
+  hideGroup("TOTAL tCO2e/resident")
+```
+
+Mapping of residential gas usage (total kBtu/tCO2e), population, gas usage intensity (kBtu/tCO2e per resident) in Redwood City in 2019 --
+The northern and central Redwood City has higher gas usage (total kBtu/tCO2e) and also intensity (kBtu/tCO2e per resident).
+The gas intensity for northern east region is much lower than the others as we mentioned earlier. 
+
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_residential_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Residential") %>%
+    pull(TOTALKBTU)
+)
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_residential_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Residential") %>%
+    pull(TOTALKBTU_per_resident))
+```
+
+```{r}
+Redwood_pge_residential_19   %>% 
+  filter(CUSTOMERCLASS == "Gas- Residential") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALKBTU),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALKBTU %>% signif(2),
+    group = "kBtu"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal3(TOTALKBTU_per_resident),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALKBTU_per_resident %>% signif(2),
+    group = "TOTAL kBtu/resident"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALKBTU,
+    title = "Total kBtu",
+    group = "kBtu"
+  ) %>%
+  addLegend(
+    pal = pal3,
+    values = ~TOTALKBTU_per_resident,
+    title = "TOTAL kBtu/resident",
+    group = "TOTAL kBtu/resident"
+) %>%
+  addLayersControl(
+    overlayGroups = c("kBtu","TOTAL kBtu/resident"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Residential Electricity", position = "bottomright") %>%
+  hideGroup("TOTAL kBtu/resident")
+```
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_residential_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Residential") %>%
+    pull(TOTALTCO2E)
+)
+
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_residential_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Residential") %>%
+    pull(TOTALTCO2E_per_resident))
+```
+
+```{r}
+Redwood_pge_residential_19   %>% 
+  filter(CUSTOMERCLASS == "Gas- Residential") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALTCO2E),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E %>% signif(2),
+    group = "kBtu"
+   ) %>% 
+  addPolygons(
+    fillColor = ~pal3(TOTALTCO2E_per_resident),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E_per_resident %>% signif(2),
+    group = "TOTALTCO2E/resident"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALTCO2E,
+    title = "Total tCO2e",
+    group = "tCO2e"
+ ) %>%
+  addLegend(
+    pal = pal3,
+    values = ~TOTALTCO2E_per_resident,
+    title = "TOTALTCO2E/resident",
+    group = "TOTALTCO2E/resident"
+) %>%
+  addLayersControl(
+    overlayGroups = c("tCO2e", "TOTALTCO2E/resident"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Residential Gas", position = "bottomright") %>%
+   hideGroup("TOTALTCO2E/resident")
+```
+
+```{r}
+Redwood_pge_commercial_19 <-
+Redwood_pge_commercial %>% 
+  filter(YEAR== 2019) %>% 
+  mutate( GEOID10 = ZIPCODE %>% as.character()
+) %>%
+  left_join(Redwood_zips) %>%
+st_as_sf()
+```
+
+Mapping of commercial electricity usage (total kBtu), population, electricity usage intensity (kBtu/job) in Redwood City in 2019 --
+
+The northern east Redwood City has higher commercial electricity usage (total kBtu) and also intensity (kBtu/job).
+The eastern part of Redwood City has more jobs also , and therefore, enhances the commercial electricity intensity for this region.
+ 
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Elec- Commercial") %>%
+    pull(TOTALKBTU)
+)
+
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Elec- Commercial") %>%
+    pull(TOTALKBTU_per_job))
+```
+
+```{r}
+Redwood_pge_commercial_19   %>% 
+  filter(CUSTOMERCLASS == "Elec- Commercial") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALKBTU),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALKBTU %>% signif(2),
+    group = "kBtu"
+  )  %>% 
+    addPolygons(
+    fillColor = ~pal3(TOTALKBTU_per_job),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALKBTU_per_job %>% signif(2),
+    group = "TOTALKBTU/job"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALKBTU,
+    title = "Total kBtu",
+    group = "kBtu"
+  ) %>%
+   addLegend(
+    pal = pal3,
+    values = ~TOTALKBTU_per_job,
+    title = "TOTALKBTU/job",
+    group = "TOTALKBTU/job"
+) %>%
+  addLayersControl(
+    overlayGroups = c("kBtu", "TOTALKBTU/job"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Commercial Electricity", position = "bottomright") %>%
+  hideGroup("TOTALKBTU/job")
+```
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Elec- Commercial") %>%
+    pull(TOTALTCO2E)
+)
+
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Elec- Commercial") %>%
+    pull(TOTALTCO2E_per_job)
+  )
+```
+
+```{r}
+Redwood_pge_commercial_19   %>% 
+  filter(CUSTOMERCLASS == "Elec- Commercial") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALTCO2E),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E %>% signif(2),
+    group = "tCO2e"
+  )  %>% 
+  addPolygons(
+    fillColor = ~pal3(TOTALTCO2E_per_job),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E_per_job %>% signif(2),
+    group = "TOTAL tCO2e/job"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALTCO2E,
+    title = "TOTAL tCO2e",
+    group = "tCO2e"
+ ) %>%
+  addLegend(
+    pal = pal3,
+    values = ~TOTALTCO2E_per_job,
+    title = "TOTAL tCO2e/job",
+    group = "TOTAL tCO2e/job"
+) %>%
+  addLayersControl(
+    overlayGroups = c("tCO2e", "TOTALTCO2E/job"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Commercial Electricity", position = "bottomright") %>%
+  hideGroup("TOTALTCO2E/job")
+```
+
+Mapping of commercial gas usage (total kBtu/tCO2e), jobs, gas usage intensity (kBtu/tCO2e per job) in Redwood City in 2019 --
+
+The northern east Redwood City has higher commercial gas usage (total kBtu/tCO2e) and also intensity (kBtu/tCO2e per job). This part of Redwood City has more jobs, and therefore, enhances the commercial gas intensity for this region.
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Commercial") %>%
+    pull(TOTALKBTU)
+)
+
+
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Commercial") %>%
+    pull(TOTALKBTU_per_job)
+)
+```
+
+```{r}
+Redwood_pge_commercial_19   %>% 
+  filter(CUSTOMERCLASS == "Gas- Commercial") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALKBTU),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALKBTU %>% signif(2),
+    group = "kBtu"
+  )  %>% 
+    addPolygons(
+    fillColor = ~pal3(TOTALKBTU_per_job),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALKBTU_per_job %>% signif(2),
+    group = "TOTALKBTU/job"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALKBTU,
+    title = "Total kBtu",
+    group = "kBtu"
+  ) %>%
+   addLegend(
+    pal = pal3,
+    values = ~TOTALKBTU_per_job,
+    title = "TOTALKBTU/job",
+    group = "TOTALTKBTU/job"
+) %>%
+  addLayersControl(
+    overlayGroups = c("kBtu", "TOTALKBTU/job"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Commercial Gas", position = "bottomright") %>%
+  hideGroup("TOTALKBTU/job")
+```
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Commercial") %>%
+    pull(TOTALTCO2E)
+)
+
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Commercial") %>%
+    pull(TOTALTCO2E_per_job)
+)
+```
+
+```{r}
+Redwood_pge_commercial_19   %>% 
+  filter(CUSTOMERCLASS == "Gas- Commercial") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALTCO2E),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E %>% signif(2),
+    group = "tCO2e"
+  )  %>% 
+   addPolygons(
+    fillColor = ~pal3(TOTALTCO2E_per_job),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E_per_job %>% signif(2),
+    group = "TOTAL tCO2e/job"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALTCO2E,
+    title = "TOTAL tCO2e",
+    group = "tCO2e"
+  ) %>%
+  addLegend(
+    pal = pal3,
+    values = ~TOTALTCO2E_per_job,
+    title = "TOTALTCO2E/job",
+    group = "TOTALTCO2E/job"
+) %>%
+  addLayersControl(
+    overlayGroups = c("tCO2e", "TOTALTCO2E/job"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Commercial Electricity", position = "bottomright") %>%
+  hideGroup("TOTAL tCO2e/job")
+```
+
+```{r}
+pal1 <- colorNumeric(
+  palette = "Reds",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Commercial") %>%
+    pull(TOTALTCO2E)
+)
+
+pal3 <- colorNumeric(
+  palette = "Purples",
+  domain = Redwood_pge_commercial_19 %>% 
+    filter(CUSTOMERCLASS == "Gas- Commercial") %>%
+    pull(TOTALTCO2E_per_job)
+)
+```
+
+```{r}
+Redwood_pge_commercial_19   %>% 
+  filter(CUSTOMERCLASS == "Gas- Commercial") %>% 
+  leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    fillColor = ~pal1(TOTALTCO2E),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E %>% signif(2),
+    group = "kBtu"
+  )  %>% 
+   addPolygons(
+    fillColor = ~pal3(TOTALTCO2E_per_job),
+    fillOpacity = 0.5,
+    stroke = F,
+    label = ~TOTALTCO2E_per_job %>% signif(2),
+    group = "TOTALTCO2E/job"
+  ) %>% 
+  addLegend(
+    pal = pal1,
+    values = ~TOTALTCO2E,
+    title = "Total kBtu",
+    group = "kBtu"
+  ) %>%
+  addLegend(
+    pal = pal3,
+    values = ~TOTALTCO2E_per_job,
+    title = "TOTALTCO2E/job",
+    group = "TOTALTCO2E/job"
+) %>%
+  addLayersControl(
+    overlayGroups = c("kBtu", "TOTALTCO2E/job"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+  addControl("Commercial Gas", position = "bottomright") %>%
+  hideGroup("TOTALTCO2E/job")
+```
+
+```{r}
+Redwood_pge_residential_year_CDD <-
+Redwood_pge_residential_year %>%
+   filter(CUSTOMERCLASS == "Elec- Residential") %>%
+  cbind(CDD_chart) %>% 
+  mutate(
+    HDD_CDD= CDD,
+    TOTALKBTU_per_HDD_CDD = (TOTALKBTU/population)/CDD,
+    TOTALTCO2E_per_HDD_CDD = (TOTALTCO2E/population)/CDD
+) %>%
+  select(-starts_with("m"),-year, -CDD,-population) 
+```
+
+```{r}
+Redwood_pge_residential_year_HDD <-
+Redwood_pge_residential_year %>%
+   filter(CUSTOMERCLASS == "Gas- Residential") %>%
+  cbind(HDD_chart) %>% 
+  mutate(
+    HDD_CDD= HDD,
+    TOTALKBTU_per_HDD_CDD = (TOTALKBTU/population)/HDD,
+    TOTALTCO2E_per_HDD_CDD = (TOTALTCO2E/population)/HDD) %>%
+  select(-starts_with("m"),-year, -HDD,-population) 
+```
+
+```{r}
+Redwood_pge_commercial_year_CDD <-
+Redwood_pge_commercial_year %>%
+   filter(CUSTOMERCLASS == "Elec- Commercial") %>%
+  cbind(CDD_chart) %>% 
+  mutate(
+    HDD_CDD= CDD,
+    TOTALKBTU_per_HDD_CDD = (TOTALKBTU/jobs)/CDD,
+    TOTALTCO2E_per_HDD_CDD = (TOTALTCO2E/jobs)/CDD
+) %>%
+  select(-starts_with("m"),-year, -CDD,-jobs) 
+```
+
+```{r}
+Redwood_pge_commercial_year_HDD <-
+Redwood_pge_commercial_year %>%
+   filter(CUSTOMERCLASS == "Gas- Commercial") %>%
+  cbind(HDD_chart) %>% 
+  mutate(
+    HDD_CDD= HDD,
+    TOTALKBTU_per_HDD_CDD = (TOTALKBTU/jobs)/HDD,
+    TOTALTCO2E_per_HDD_CDD = (TOTALTCO2E/jobs)/HDD) %>%
+  select(-starts_with("m"),-year, -HDD,-jobs) 
+```
+
+```{r}
+Redwood_pge_residential_final <-
+rbind (Redwood_pge_residential_year_HDD,
+       Redwood_pge_residential_year_CDD,
+       Redwood_pge_commercial_year_HDD,
+       Redwood_pge_commercial_year_CDD
+       )  
+saveRDS(Redwood_pge_residential_final, "Redwood_pge_residential_final.rds")
+```
+
+Commercial electricity intensity (kBtus/job/CDD) is the highest among all categories, followed by Residential electricity intensity (kBtus/resident/CDD). However, commercial electricity intensity decreases more with year.
+Gas intensity are lower for both commercial  (kBtus/job/HDD) and residential(kBtus/resident/HDD).
+
+```{r}
+Redwood_pge_residential_final  %>% 
+  ggplot(
+    aes(
+      x = YEAR,
+      y = TOTALKBTU_per_HDD_CDD
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = CUSTOMERCLASS
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "kBtus/resident(jobs)/HDD(CDD)",
+  title = "Building Energy Use Intensity\nin Redwood City, 2013 to 2019", 
+color ="CUSTOMER\nCLASS" ) + scale_linetype_manual(labels = c("Commercial elctricity", "Commercial gas", "Residential  elctricity", "Residential  gas") )
+```
+
+The total residential gas usage in GBTU remains in highest level. Total commercial gas usage is the lowest but tends to increase with year. Total electricity usage do not vary too much across years.
+
+```{r}
+ggplot(
+  Redwood_pge_sum, 
+  aes(
+    x = as.factor(YEAR), 
+    y = TOTALKBTU/1000000
+  )
+) + 
+  geom_bar(stat = "identity", aes(fill = CUSTOMERCLASS), position = "dodge") + 
+  labs(x = "Year", y = "GBTU", title = "Redwood City Total Annual Energy Usage, 2013 to 2019") + 
+  scale_fill_discrete(name="CUSTOMER\nCLASS",
+labels = c("Elec-Commercial","Elec-Residential",
+           "Gas-Commercial","	Gas-Residential" ))
+```
+
+The total CO2 emissions in tCO2e generated from residential gas usage in Redwood City remains in very high level. The total CO2 emissions in tCO2e generated from commercial gas increases with year gradually.  
+However, the total CO2 emissions in tCO2e generated from both commercial and residential usage indeed decrease with year progressively.
+
+```{r}
+ggplot(
+  Redwood_pge_sum, 
+  aes(
+    x = as.factor(YEAR), 
+    y = TOTALTCO2E
+  )
+) + 
+  geom_bar(stat = "identity", aes(fill = CUSTOMERCLASS), position = "dodge") + 
+  labs(x = "Year", y = "tCO2e", title = "Redwood City Total Annual Energy Usage,\n2013 to 2019") + 
+  scale_fill_discrete(name="CUSTOMER\nCLASS",labels = c("Elec-Commercial","Elec-Residential",
+           "Gas-Commercial","	Gas-Residential" ))  
+```
+
+The number of customers for residential energy usage remain pretty much in a constant level. 
+
+```{r}
+ggplot(
+  Redwood_pge_sum, 
+  aes(
+    x = as.factor(YEAR), 
+    y = TOTALCUSTOMERS
+  )
+) + 
+  geom_bar(stat = "identity", aes(fill = CUSTOMERCLASS), position = "dodge") + 
+  labs(x = "Year", y = "TOTAL CUSTOMERS", title = "Redwood City Annual Energy Usage,\n2013 to 2019") + 
+  scale_fill_discrete(name="CUSTOMER\nCLASS",labels = c("Elec-Commercial","Elec-Residential",
+           "Gas-Commercial","	Gas-Residential" ))  
+```
+
+```{r}
+Redwood_emissions_plot <-
+  Redwood_emissions %>%
+  group_by(Year,Emissions,Emission_Source) %>%
+  summarise(
+    Sum_emissions= sum(Emissions, na.rm = T)
+  )
+```
+
+```{r}
+ggplot(
+  Redwood_emissions_plot, 
+  aes(
+    x = as.factor(Year), 
+    y = Emissions
+  )
+) + 
+  geom_bar(stat = "identity", aes(fill =Emission_Source), position = "dodge") + 
+  labs(x = "Year", y = "TOTALTCO2E/GHG", title ="Vehicle/Building Emissions in Redwood City,\n2013 to 2019") + 
+  scale_fill_discrete(name="Emission_Source",labels = c("Building","Vehicle"))  
+```
+
+
+
+In conclusion, emissions from gasoline vehicle is the highest among all categories, followed by diesel vehicle, and then residential gas usage. Electricity for commercial and residential usage are in the middle level of emissions which aggressively decrease with year. Therefore, electricity can be considered as a good source of energy in terms of emissions. The emissions for commercial gas is also in the middle level but mildly increase with year after 2014, which reach a much higher level in 2018 and 2019. The related strategies for better control over emissions from commercial gas usage should be assessed and implemented. Electric vehicle generate the least amount of emissions and should be aggressively encouraged to replace gas and diesel vehicles in order to largely reduce the transportation emissions due to these vehicles with higher emissions. 
+
+1. From our analysis, it is found that transportation could be a major source for emissions. People may need to commute to places with high numbers of job offers and consequently lead to a vast amount of emissions due to commuting vehicles. A majority of people still drive alone during a commute. Therefore, carpooling or transit adoption needs to be more actively encouraged with higher feasibility and better accessibility. 
+2. People may commute for a variety of reasons. High hosing burden may be one of the reasons.
+The regarding housing policy should be assessed to reduce the necessity for commute.
+3. Vehicle type and the associated fuel used for the vehicle is also important factors for emissions. Some type of vehicles may reduce emissions by using certain type of fuel. These information may be helpful as the reference for policy making in transportation and energy management. 
+4. The usage in gas is increasing and results in a large amount of building emissions. Hence, a better source of building energy use should be considered. Building electrification could be a good way of reducing gas usage in buildings.
+
